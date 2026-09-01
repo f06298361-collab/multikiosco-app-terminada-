@@ -1,7 +1,9 @@
-const CACHE_NAME = "kiosco-pwa-v1";
+const CACHE_NAME = "kiosco-pwa-v2";
 const ASSETS_TO_CACHE = [
   "/",
   "/favicon.svg",
+  "/manifest.webmanifest",
+  "/manifest.json"
 ];
 
 self.addEventListener("install", (event) => {
@@ -29,18 +31,22 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  // Ignorar peticiones API
-  if (event.request.url.includes("/api/")) {
+  // Ignorar peticiones API o no GET
+  if (event.request.method !== "GET" || event.request.url.includes("/api/")) {
     return;
   }
   event.respondWith(
-    fetch(event.request).catch(() => {
-      return caches.match(event.request).then((response) => {
-        if (response) return response;
-        if (event.request.mode === "navigate") {
-          return caches.match("/");
-        }
-      });
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        return networkResponse;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          if (event.request.mode === "navigate") {
+            return caches.match("/");
+          }
+        });
+      })
   );
 });

@@ -34,38 +34,38 @@
 }
 
 :root {
-  /* Neutrals — warm white base */
-  --background: 30 15% 97%;
-  --foreground: 220 20% 12%;
-  --border: 220 13% 90%;
-  --input: 220 13% 92%;
-  --ring: 350 68% 38%;
+  /* Neutrals — clean light slate base */
+  --background: 210 20% 98%;
+  --foreground: 222 47% 11%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 215 75% 26%;
 
   /* Cards */
   --card: 0 0% 100%;
-  --card-foreground: 220 20% 12%;
+  --card-foreground: 222 47% 11%;
 
-  /* Primary — deep crimson, elegant & brand-consistent */
-  --primary: 350 68% 38%;
+  /* Primary — deep petrol / navy blue, highly professional SaaS */
+  --primary: 215 75% 26%;
   --primary-foreground: 0 0% 100%;
 
   /* Secondary */
-  --secondary: 220 14% 95%;
-  --secondary-foreground: 220 20% 20%;
+  --secondary: 210 20% 95%;
+  --secondary-foreground: 222 47% 15%;
 
   /* Muted */
-  --muted: 220 14% 95%;
-  --muted-foreground: 220 10% 46%;
+  --muted: 210 20% 95%;
+  --muted-foreground: 215 16% 47%;
 
   /* Accent */
-  --accent: 220 14% 93%;
-  --accent-foreground: 220 20% 15%;
+  --accent: 210 20% 93%;
+  --accent-foreground: 222 47% 15%;
 
   /* Destructive */
-  --destructive: 0 72% 46%;
+  --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
 
-  --app-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --app-font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', Helvetica, Arial, sans-serif;
   --radius: 0.75rem;
 }
 

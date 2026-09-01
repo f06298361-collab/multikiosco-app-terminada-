@@ -318,14 +318,14 @@ export function SuperAdminPanel({ onLogout }: { onLogout: () => void }) {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold tracking-tight">
-                Panel Super Administrador
+                FerrApp <span className="font-semibold text-slate-300">SuperAdmin</span>
               </h1>
               <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
                 GLOBAL
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Sesión activa:{" "}
+              Plataforma de gestión multi-kiosco · Sesión:{" "}
               <span className="text-slate-200 font-medium">
                 {currentUser?.name || currentUser?.username || "Super Admin"}
               </span>
@@ -1161,6 +1161,13 @@ export function SuperAdminPanel({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
       )}
+
+      {/* Footer de Plataforma */}
+      <footer className="mt-8 pt-4 pb-2 border-t border-border/40 text-center select-none">
+        <p className="text-xs text-muted-foreground/80 font-medium">
+          <span className="font-semibold text-foreground/90">FerrApp</span> · Plataforma e infraestructura multi-kiosco
+        </p>
+      </footer>
     </div>
   );
 }

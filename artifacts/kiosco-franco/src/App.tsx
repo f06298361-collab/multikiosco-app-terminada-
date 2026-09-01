@@ -719,33 +719,38 @@ function TopViewSwitcher({
   const isSuperAdminView = currentScreen === "superadmin";
 
   const getBtnClass = (active: boolean) =>
-    `px-2.5 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${
+    `px-3 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
       active
-        ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-        : "text-slate-300 hover:text-white hover:bg-slate-800"
+        ? "bg-slate-800 text-white shadow-xs border border-slate-700"
+        : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
     }`;
 
   return (
-    <div className="fixed top-0 inset-x-0 z-[9999] flex h-11 items-center justify-center bg-slate-950 px-2 border-b border-slate-800 text-white shadow-md">
-      <div className="flex items-center justify-center gap-1.5 overflow-x-auto py-1 no-scrollbar max-w-md w-full">
-        <button
-          className={getBtnClass(isClientView)}
-          onClick={() => onSelectScreen("products")}
-        >
-          Vista de Cliente
-        </button>
-        <button
-          className={getBtnClass(isAdminView)}
-          onClick={() => onSelectScreen("admin")}
-        >
-          Vista de Administrador
-        </button>
-        <button
-          className={getBtnClass(isSuperAdminView)}
-          onClick={() => onSelectScreen("superadmin")}
-        >
-          Plataforma
-        </button>
+    <div className="fixed top-0 inset-x-0 z-[9999] flex h-10 items-center justify-center bg-slate-950 px-3 border-b border-slate-900 text-white shadow-sm">
+      <div className="flex items-center justify-between gap-1 overflow-x-auto py-1 no-scrollbar max-w-md w-full">
+        <div className="flex items-center gap-1">
+          <button
+            className={getBtnClass(isClientView)}
+            onClick={() => onSelectScreen("products")}
+          >
+            Tienda
+          </button>
+          <button
+            className={getBtnClass(isAdminView)}
+            onClick={() => onSelectScreen("admin")}
+          >
+            Admin
+          </button>
+          <button
+            className={getBtnClass(isSuperAdminView)}
+            onClick={() => onSelectScreen("superadmin")}
+          >
+            SuperAdmin
+          </button>
+        </div>
+        <span className="text-[10px] font-semibold text-slate-500 tracking-wider select-none">
+          FerrApp
+        </span>
       </div>
     </div>
   );
@@ -1145,6 +1150,25 @@ function ProductsScreen({ onGoToCart }: { onGoToCart: () => void }) {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCat, setActiveCat] = useState("Todos");
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+    return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const choiceResult = await installPrompt.userChoice;
+    if (choiceResult && choiceResult.outcome === "accepted") {
+      setInstallPrompt(null);
+    }
+  };
 
   const cartTotal = useMemo(
     () =>
@@ -1247,6 +1271,14 @@ function ProductsScreen({ onGoToCart }: { onGoToCart: () => void }) {
             <span className="flex items-center gap-1 font-medium whitespace-nowrap bg-muted/70 px-2.5 py-1 rounded-lg border border-border/40">
               💳 {settings.paymentMethods}
             </span>
+          )}
+          {installPrompt && (
+            <button
+              onClick={handleInstallApp}
+              className="flex items-center gap-1.5 font-semibold text-xs whitespace-nowrap bg-primary text-primary-foreground px-3 py-1 rounded-lg shadow-xs hover:opacity-90 active:scale-95 transition"
+            >
+              📲 Instalar App
+            </button>
           )}
         </div>
       )}
@@ -1376,6 +1408,23 @@ function ProductsScreen({ onGoToCart }: { onGoToCart: () => void }) {
           )}
         </div>
       )}
+
+      {/* Firma de marca discreta */}
+      <footer className="mt-8 pt-4 pb-4 text-center select-none space-y-2">
+        {installPrompt && (
+          <div>
+            <button
+              onClick={handleInstallApp}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-muted hover:bg-accent border border-border/70 text-foreground shadow-2xs transition active:scale-95"
+            >
+              📲 Instalar aplicación en tu pantalla de inicio
+            </button>
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground/60 tracking-wide font-medium">
+          by <span className="font-semibold text-muted-foreground/80">FerrApp</span>
+        </p>
+      </footer>
 
       {cart.length > 0 && (
         <div className="fixed bottom-[68px] left-1/2 z-10 w-full max-w-md -translate-x-1/2 px-4">
@@ -1651,6 +1700,12 @@ function CartScreen({
               {settings.active === false ? "Negocio en pausa (no disponible)" : "Continuar pedido"}
             </button>
           </div>
+
+          <footer className="mt-6 pb-2 text-center select-none">
+            <p className="text-[11px] text-muted-foreground/60 tracking-wide font-medium">
+              by <span className="font-semibold text-muted-foreground/80">FerrApp</span>
+            </p>
+          </footer>
         </>
       )}
     </div>
@@ -1857,6 +1912,12 @@ function CheckoutScreen({
             ? "Confirmar y ver cómo pagar"
             : "Confirmar pedido"}
         </button>
+
+        <footer className="mt-3 pb-2 text-center select-none">
+          <p className="text-[11px] text-muted-foreground/60 tracking-wide font-medium">
+            by <span className="font-semibold text-muted-foreground/80">FerrApp</span>
+          </p>
+        </footer>
       </div>
     </div>
   );
@@ -2085,6 +2146,12 @@ function ConfirmationScreen({
       >
         Volver al inicio
       </button>
+
+      <footer className="mt-3 pb-2 text-center select-none">
+        <p className="text-[11px] text-muted-foreground/60 tracking-wide font-medium">
+          by <span className="font-semibold text-muted-foreground/80">FerrApp</span>
+        </p>
+      </footer>
     </div>
   );
 }
@@ -2191,6 +2258,14 @@ function AdminLogin({
         >
           {loading ? "Verificando..." : "Ingresar al Panel"}
         </button>
+
+        <div className="pt-4 border-t border-border/40 text-center select-none">
+          <p className="text-xs text-muted-foreground/75 font-medium flex items-center justify-center gap-1.5">
+            <span className="font-semibold text-foreground/80">FerrApp</span>
+            <span>·</span>
+            <span>Plataforma de gestión</span>
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -2984,6 +3059,15 @@ function AdminPanel({ onLogout }: { onLogout?: () => void } = {}) {
       {tab === "stats" && <AdminStats />}
       {tab === "design" && <AdminDesign />}
       {tab === "settings" && <AdminSettings />}
+
+      {/* Footer discreto de plataforma en panel de administración */}
+      <footer className="mt-8 mb-4 pt-4 border-t border-border/40 text-center select-none">
+        <p className="text-xs text-muted-foreground/75 font-medium flex items-center justify-center gap-1.5">
+          <span className="font-semibold text-foreground/80">FerrApp</span>
+          <span>·</span>
+          <span>Plataforma de gestión</span>
+        </p>
+      </footer>
     </div>
   );
 }
