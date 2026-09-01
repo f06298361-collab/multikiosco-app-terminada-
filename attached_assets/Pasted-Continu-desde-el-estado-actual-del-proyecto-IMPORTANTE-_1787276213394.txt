@@ -1,0 +1,129 @@
+Continuá desde el estado actual del proyecto.
+
+IMPORTANTE: estamos trabajando ÚNICAMENTE sobre:
+
+`f06298361-collab/KIOSCO-FRANCO-MULTIKIOSCO`
+
+rama `main`.
+
+Conservá los cambios anteriores y el checkpoint existente. No vuelvas al proyecto `KIOSCO-FRANCO-PRODUCCION`.
+
+## ERROR ACTUAL
+
+La aplicación está mostrando:
+
+> El negocio con el identificador `edcdfd59-da02-4ed1-a30e-0f6b6662801c-00-1gotz81tart0o` no fue encontrado.
+
+Este error debe investigarse y corregirse.
+
+## MUY IMPORTANTE
+
+NO supongas que ese valor es un `kioskId` válido.
+
+Primero determiná exactamente:
+
+1. De dónde sale el identificador:
+   `edcdfd59-da02-4ed1-a30-0f6b6662801c-00-1gotz81tart0o`
+2. Qué componente/frontend lo está generando o enviando.
+3. Qué ruta del backend lo recibe.
+4. Qué valor llega realmente al resolver de kioscos.
+5. Cómo se compara ese valor contra la tabla `kiosks`.
+6. Cuál es el `id` real del kiosco correspondiente en la base de datos.
+7. Si el problema está en el frontend, backend, URL, slug, resolver o persistencia.
+
+Prestá especial atención porque el identificador parece contener un UUID seguido de información adicional:
+
+`edcdfd59-da02-4ed1-a30e-0f6b6662801c-00-1gotz81tart0o`
+
+No elimines ni recortes arbitrariamente esa parte. Primero encontrá quién está generando ese valor y por qué.
+
+## CONTEXTO DEL SISTEMA
+
+El proyecto utiliza:
+
+* React + TypeScript
+* Vite
+* Express
+* PostgreSQL
+* Drizzle ORM
+* sistema Multikiosco
+* SuperAdmin
+* `kioskId`
+* slug
+* resolución de kioscos
+* productos por kiosco
+* pedidos por kiosco
+* configuración por kiosco
+
+Ya existe una implementación de `kiosk-resolver.ts` que fue modificada anteriormente para priorizar ID sobre slug.
+
+También existe compatibilidad histórica con `kiosk-franco`.
+
+NO reemplaces el resolver completo.
+
+## IMPORTANTE SOBRE KIOSCO-FRANCO
+
+No hagas que cualquier identificador desconocido vuelva automáticamente a `kiosk-franco`.
+
+Eso podría ocultar el problema y provocar que un negocio termine viendo los datos de otro.
+
+Si un identificador es inválido, debe identificarse correctamente el motivo.
+
+## FORMA DE TRABAJO
+
+Primero investigá.
+
+NO modifiques código hasta localizar la causa exacta.
+
+Después:
+
+1. Aplicá la corrección mínima necesaria.
+2. Ejecutá typecheck.
+3. Ejecutá build del frontend.
+4. Ejecutá build del backend.
+5. Probá nuevamente el flujo que generaba el error.
+6. Verificá que el kiosco correcto sea identificado.
+
+## TAMBIÉN VERIFICÁ
+
+Después de solucionar el error, comprobá que no se rompan:
+
+* acceso por `kioskId`;
+* acceso por slug;
+* selección de kiosco desde SuperAdmin;
+* configuración del negocio;
+* productos;
+* pedidos;
+* activación/desactivación;
+* carrito separado por kiosco.
+
+NO hagas una reescritura general.
+
+NO agregues dependencias.
+
+NO cambies la arquitectura.
+
+NO agregues Vapi.
+
+NO trabajes en APK/AAB.
+
+## REGLA POR LOS CRÉDITOS
+
+Estamos usando Free.
+
+Trabajá de forma eficiente y no vuelvas a escanear todo el repositorio repetidamente.
+
+Concentrate primero en este error.
+
+Cuando encuentres la causa, corregila y verificá.
+
+Después DETENETE.
+
+Al finalizar informame:
+
+* causa exacta;
+* archivo(s) modificados;
+* corrección realizada;
+* pruebas ejecutadas;
+* resultado;
+* cualquier problema pendiente relacionado con los identificadores de kiosco.

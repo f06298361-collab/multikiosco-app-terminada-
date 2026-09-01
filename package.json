@@ -1,0 +1,29 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "artifacts/*",
+    "lib/*",
+    "scripts"
+  ],
+  "scripts": {
+    "build:frontend": "npm run build --workspace=@workspace/kiosco-franco",
+    "build:backend": "npm run build --workspace=@workspace/api-server",
+    "build": "npm run build:frontend && npm run build:backend",
+    "dev": "npm run build:frontend && tsx watch artifacts/api-server/src/index.ts",
+    "start": "node --enable-source-maps artifacts/api-server/dist/index.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "npm run typecheck"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  }
+}

@@ -1,0 +1,122 @@
+Ahora sí estamos trabajando sobre el repositorio CORRECTO:
+
+`f06298361-collab/KIOSCO-FRANCO-MULTIKIOSCO`
+
+Este repositorio es el proyecto oficial que quiero continuar desarrollando.
+
+IMPORTANTE:
+
+No vuelvas al proyecto `KIOSCO-FRANCO-PRODUCCION`.
+
+No copies código desde ese proyecto.
+
+No reemplaces esta aplicación por otra.
+
+Este repositorio ya contiene el trabajo realizado anteriormente, incluyendo el commit `4314722` y las modificaciones realizadas por Gemini.
+
+## OBJETIVO
+
+Quiero continuar exactamente desde el estado actual de este repositorio.
+
+Antes de modificar código, hacé una revisión del proyecto actual para entender:
+
+* frontend;
+* backend;
+* base de datos;
+* autenticación;
+* sistema Multikiosco;
+* SuperAdmin;
+* activación/desactivación de negocios;
+* productos;
+* pedidos;
+* carrito;
+* configuración de negocios;
+* WhatsApp;
+* PWA.
+
+También revisá los cambios que ya existen en el commit `4314722`.
+
+## IMPORTANTE SOBRE EL TRABAJO ANTERIOR
+
+No borres ni reviertas los cambios de Gemini.
+
+Si algo está correcto, conserválo.
+
+Si algo tiene un error, corregilo sobre el código existente.
+
+No reconstruyas el proyecto desde cero.
+
+No cambies la arquitectura.
+
+No agregues dependencias innecesarias.
+
+No hagas migraciones innecesarias.
+
+No agregues Vapi.
+
+No trabajes todavía en APK/AAB.
+
+## FORMA DE TRABAJO
+
+Estamos utilizando el plan Free, por lo que quiero trabajar de forma eficiente.
+
+No hagas un escaneo repetitivo del repositorio.
+
+Primero identificá los problemas importantes.
+
+Después corregilos progresivamente, empezando por los que afectan el funcionamiento principal.
+
+Si encontrás un error:
+
+1. Identificá la causa.
+2. Revisá los archivos relacionados.
+3. Aplicá la corrección necesaria.
+4. Verificá que compile.
+5. Comprobá que no hayas roto otra función.
+6. Continuá con el siguiente problema.
+
+No hagas cambios innecesarios solamente para "mejorar" el código.
+
+## PROBLEMA PRIORITARIO QUE YA CONOCEMOS
+
+Uno de los problemas principales que veníamos intentando solucionar era:
+
+SuperAdmin no podía activar/desactivar correctamente un negocio/kiosco.
+
+Hay que comprobar especialmente:
+
+* activación;
+* desactivación;
+* persistencia del estado;
+* recarga de la aplicación;
+* selección correcta del kiosco;
+* que no se modifique siempre `kiosk-franco`;
+* resolución mediante `kioskId`;
+* resolución mediante slug;
+* permisos de SuperAdmin.
+
+También revisá las referencias hardcodeadas a `kiosk-franco` que puedan interferir con el funcionamiento Multikiosco.
+
+## ANTES DE CAMBIAR CÓDIGO
+
+Primero decime:
+
+1. Qué versión/estado del proyecto encontraste.
+2. Qué problemas detectaste.
+3. Cuáles de los problemas anteriores ya están solucionados.
+4. Cuáles siguen pendientes.
+5. Qué problema vas a corregir primero.
+
+Después de ese diagnóstico, podés comenzar a corregir los errores.
+
+Recordá:
+
+ESTE repositorio es ahora la fuente oficial del proyecto.
+
+No trabajes sobre otro repositorio.
+
+No crees otra aplicación.
+
+No reemplaces la arquitectura existente.
+
+Conservá el trabajo realizado anteriormente y continuá desde acá.

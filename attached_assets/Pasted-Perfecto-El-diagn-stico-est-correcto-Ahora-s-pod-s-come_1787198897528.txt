@@ -1,0 +1,92 @@
+Perfecto. El diagnóstico está correcto.
+
+Ahora sí podés comenzar a modificar código, pero trabajá POR ETAPAS para no gastar créditos innecesariamente ni introducir errores nuevos.
+
+## PRIMER OBJETIVO
+
+Corregí primero solamente este problema:
+
+> Un kiosco desactivado no debe seguir mostrando su tienda pública cuando alguien entra directamente mediante slug, `kioskId` o subdominio.
+
+Actualmente el kiosco puede quedar fuera del listado público, pero todavía puede ser resuelto directamente y mostrar parte de su contenido.
+
+## REGLAS
+
+No cambies la arquitectura.
+
+No reemplaces el sistema actual.
+
+No hagas una reescritura completa.
+
+No elimines la compatibilidad necesaria con Kiosco Franco.
+
+No agregues dependencias.
+
+No hagas cambios relacionados con Vapi.
+
+No trabajes todavía sobre APK/AAB.
+
+No corrijas todavía los otros problemas detectados.
+
+## IMPLEMENTACIÓN
+
+Utilizá la estructura existente.
+
+La lógica debería garantizar que:
+
+1. Se resuelva correctamente el kiosco solicitado.
+2. Se compruebe su estado `active`.
+3. Si está inactivo, las rutas públicas correspondientes deben impedir que el cliente continúe utilizando la tienda.
+4. SuperAdmin debe seguir pudiendo acceder a la administración del kiosco.
+5. SuperAdmin debe poder volver a activarlo.
+6. Un kiosco inactivo no debe impedir que otros kioscos continúen funcionando.
+7. No debe producirse un fallback silencioso hacia `kiosk-franco`.
+
+También prestá especial atención a que un error de resolución/base de datos NO termine considerando automáticamente al kiosco como `active: true`.
+
+Pero si modificar el fallback de `active: true` es una corrección separada del bloqueo público, dejala para la siguiente etapa y no mezcles cambios innecesarios.
+
+## DESPUÉS DE MODIFICAR
+
+Verificá como mínimo:
+
+### Kiosco activo
+
+* aparece normalmente;
+* se puede entrar mediante slug;
+* se puede entrar mediante `kioskId`;
+* funciona el catálogo;
+* funciona el carrito;
+* no se rompe el checkout.
+
+### Kiosco inactivo
+
+* no aparece en el listado público;
+* no se puede utilizar la tienda mediante URL directa;
+* no se puede realizar un nuevo pedido;
+* no se puede saltar el bloqueo utilizando `kioskId`;
+* SuperAdmin todavía puede verlo;
+* SuperAdmin todavía puede volver a activarlo.
+
+### Otros kioscos
+
+Comprobá que desactivar un kiosco NO afecte a otro.
+
+## IMPORTANTE
+
+Antes de terminar, ejecutá las verificaciones/build necesarios.
+
+Si todo funciona, detenete.
+
+NO continúes automáticamente con los otros problemas.
+
+Informame:
+
+* archivos modificados;
+* causa del problema;
+* solución aplicada;
+* pruebas realizadas;
+* resultado de cada prueba;
+* si queda algún problema relacionado con este flujo.
+
+Después de eso decidiremos juntos cuál es el siguiente problema.

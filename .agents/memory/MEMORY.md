@@ -1,0 +1,1 @@
+- [Replit host resolution](replit-host-resolution.md) — preview/deployment subdomains must not be inferred as kiosk slugs.

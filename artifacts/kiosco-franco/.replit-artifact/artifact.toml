@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Kiosco Franco"
+version = "1.0.0"
+id = "artifacts/kiosco-franco"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18998
+
+[services.development]
+run = "pnpm --filter @workspace/kiosco-franco run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/kiosco-franco", "run", "build" ]
+publicDir = "artifacts/kiosco-franco/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18998"
+BASE_PATH = "/"

@@ -1,0 +1,75 @@
+{
+  "settings": [
+    {
+      "id": "default",
+      "shopName": "Kiosco Franco",
+      "whatsappNumber": "5493437449728",
+      "mercadoPagoAlias": "franco.mp",
+      "mercadoPagoQr": null
+    },
+    {
+      "createdAt": "2026-08-30T16:31:52.040Z",
+      "id": "default",
+      "shopName": "Kiosco Franco",
+      "whatsappNumber": "5493437449728",
+      "mercadoPagoAlias": "franco.mp"
+    },
+    {
+      "createdAt": "2026-08-30T16:31:52.040Z",
+      "id": "default",
+      "shopName": "Kiosco Franco",
+      "whatsappNumber": "5493437449728",
+      "mercadoPagoAlias": "franco.mp"
+    }
+  ],
+  "products": [],
+  "orders": [],
+  "kiosks": [
+    {
+      "id": "kiosk-franco",
+      "name": "Kiosco Franco",
+      "slug": "kiosco-franco",
+      "active": true,
+      "createdAt": "2026-08-30T16:31:52.025Z",
+      "updatedAt": "2026-08-30T16:31:52.025Z"
+    }
+  ],
+  "users": [
+    {
+      "createdAt": "2026-08-30T16:31:52.055Z",
+      "id": "usr-superadmin-init",
+      "username": "superadmin",
+      "name": "Super Administrador",
+      "passwordHash": "905ab7d89c8d4bc25def99a4e2e55b85dc7a10739b7cd934258e058c6d51278afac71882f043919ebac626bd5a53421488bb82f8c9adac3300a23b81b9d48449",
+      "salt": "19d9d506a4da7c8195c29c8f56bf690b",
+      "role": "superadmin",
+      "active": true,
+      "updatedAt": "2026-08-30T16:32:30.340Z"
+    },
+    {
+      "createdAt": "2026-08-30T16:31:52.055Z",
+      "id": "usr-superadmin-init",
+      "username": "superadmin",
+      "name": "Super Administrador",
+      "passwordHash": "905ab7d89c8d4bc25def99a4e2e55b85dc7a10739b7cd934258e058c6d51278afac71882f043919ebac626bd5a53421488bb82f8c9adac3300a23b81b9d48449",
+      "salt": "19d9d506a4da7c8195c29c8f56bf690b",
+      "role": "superadmin",
+      "active": true,
+      "updatedAt": "2026-08-30T16:32:30.340Z"
+    },
+    {
+      "createdAt": "2026-08-30T16:31:52.132Z",
+      "id": "usr_superadmin",
+      "username": "superadmin",
+      "name": "Super Administrador",
+      "passwordHash": "905ab7d89c8d4bc25def99a4e2e55b85dc7a10739b7cd934258e058c6d51278afac71882f043919ebac626bd5a53421488bb82f8c9adac3300a23b81b9d48449",
+      "salt": "19d9d506a4da7c8195c29c8f56bf690b",
+      "role": "superadmin",
+      "kioskId": null,
+      "active": true,
+      "updatedAt": "2026-08-30T16:32:30.340Z"
+    }
+  ],
+  "user_kiosks": [],
+  "admin_invitations": []
+}
