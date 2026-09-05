@@ -42,9 +42,9 @@ async function rejectInactivePublicKiosk(
 }
 
 const DEFAULT_SETTINGS = {
-  shopName: "Kiosco Franco",
-  whatsappNumber: "5493437449728",
-  mercadoPagoAlias: "franco.mp",
+  shopName: "Tienda Online",
+  whatsappNumber: "",
+  mercadoPagoAlias: "",
 };
 
 export async function ensureSettingsForKiosk(kioskId: string) {
@@ -53,7 +53,6 @@ export async function ensureSettingsForKiosk(kioskId: string) {
       .select()
       .from(settingsTable)
       .where(eq(settingsTable.id, kioskId));
-    if (row) return row;
 
     let kioskName = "";
     let kioskFound = false;
@@ -68,6 +67,25 @@ export async function ensureSettingsForKiosk(kioskId: string) {
         kioskName = kiosk.name;
       }
     } catch {}
+
+    if (row) {
+      if (
+        kioskId !== "kiosk-franco" &&
+        kioskId !== "default" &&
+        row.shopName === "Kiosco Franco" &&
+        kioskName &&
+        kioskName !== "Kiosco Franco"
+      ) {
+        try {
+          await db
+            .update(settingsTable)
+            .set({ shopName: kioskName })
+            .where(eq(settingsTable.id, kioskId));
+          row.shopName = kioskName;
+        } catch {}
+      }
+      return row;
+    }
 
     if (!kioskFound) {
       return null;
@@ -109,7 +127,18 @@ router.get("/settings", async (req, res): Promise<void> => {
     return;
   }
 
-  const resolvedShopName = row.shopName || kiosk.name || "Mi Tienda";
+  let resolvedShopName = row.shopName;
+  if (
+    kiosk.id !== "kiosk-franco" &&
+    kiosk.slug !== "kiosco-franco" &&
+    resolvedShopName === "Kiosco Franco" &&
+    kiosk.name
+  ) {
+    resolvedShopName = kiosk.name;
+  }
+  if (!resolvedShopName || !resolvedShopName.trim()) {
+    resolvedShopName = kiosk.name || "Mi Tienda";
+  }
 
   res.json({
     kioskId: kiosk.id,
@@ -149,7 +178,18 @@ router.get(["/manifest.json"], async (req, res): Promise<void> => {
     res.status(404).json({ error: "El kiosco solicitado no existe." });
     return;
   }
-  const shopName = row.shopName || kiosk.name || DEFAULT_SETTINGS.shopName;
+  let shopName = row.shopName;
+  if (
+    kiosk.id !== "kiosk-franco" &&
+    kiosk.slug !== "kiosco-franco" &&
+    shopName === "Kiosco Franco" &&
+    kiosk.name
+  ) {
+    shopName = kiosk.name;
+  }
+  if (!shopName || !shopName.trim()) {
+    shopName = kiosk.name || "Tienda Online";
+  }
   const description = (row as any).description || "Pedidos online y catálogo de productos";
   const slug = kiosk.slug || kiosk.id;
 

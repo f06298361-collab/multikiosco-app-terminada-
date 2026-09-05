@@ -142,6 +142,8 @@ const CART_STORAGE_KEY = "kiosco-franco-cart-v1";
 const LAST_ORDER_STORAGE_KEY = "kiosco-franco-last-order-v1";
 const SELECTED_KIOSK_KEY = "kiosco-franco-selected-kiosk-v1";
 const NOTIFICATIONS_STORAGE_KEY = "kiosco-franco-notifications-v1";
+export const NOTIFICATION_TTL_MS = 2 * 60 * 1000; // 2 minutos de caducidad automática
+export const MAX_STORED_NOTIFICATIONS = 10;
 
 function loadInitialNotifications(): NotificationItem[] {
   if (typeof window === "undefined") return [];
@@ -150,7 +152,18 @@ function loadInitialNotifications(): NotificationItem[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      return parsed.slice(0, 50);
+      const now = Date.now();
+      const valid = parsed.filter(
+        (n: any) =>
+          n &&
+          typeof n.timestamp === "number" &&
+          now - n.timestamp < NOTIFICATION_TTL_MS &&
+          !n.read
+      ).slice(0, MAX_STORED_NOTIFICATIONS);
+      try {
+        localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(valid));
+      } catch {}
+      return valid;
     }
   } catch {}
   return [];
@@ -201,7 +214,9 @@ function getCurrentKioskObj(s: {
   selectedKioskId: string;
   settings: Settings;
 }): Kiosk {
-  const k = s.publicKiosks.find((item) => item.id === s.selectedKioskId || item.slug === s.selectedKioskId);
+  const k =
+    s.publicKiosks.find((item) => item.id === s.selectedKioskId || item.slug === s.selectedKioskId) ||
+    adminUser?.assignedKiosks?.find((item) => item.id === s.selectedKioskId || item.slug === s.selectedKioskId);
   const activeFromSettings = s.settings?.active;
   if (k) {
     return {
@@ -391,35 +406,149 @@ async function refreshProducts() {
 
 // ─── Sistema de Notificaciones y Audio ─────────────────────────────────────────
 
-export function playNotificationSound(type: "new_order" | "status_change") {
-  if (typeof window === "undefined") return;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+export type NotificationSoundType =
+  | "new_order"
+  | "preparacion"
+  | "listo"
+  | "en_camino"
+  | "entregado"
+  | "status_change";
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+let sharedAudioCtx: AudioContext | null = null;
+let audioContextUnlocked = false;
 
-    if (type === "new_order") {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.4);
-    } else {
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(523.25, ctx.currentTime);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.3);
+export function getSharedAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
+    try {
+      sharedAudioCtx = new AudioContextClass();
+    } catch {
+      return null;
     }
-  } catch {}
+  }
+  return sharedAudioCtx;
+}
+
+export function getAudioStatus(): "running" | "suspended" | "closed" | "unsupported" {
+  if (typeof window === "undefined") return "unsupported";
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return "unsupported";
+  if (!sharedAudioCtx) return "suspended";
+  return sharedAudioCtx.state;
+}
+
+export async function unlockAudioPipeline(): Promise<boolean> {
+  const ctx = getSharedAudioContext();
+  if (!ctx) return false;
+  try {
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+    // Buffer silencioso de 1 muestra para desbloquear pipeline en iOS WebKit y Chrome Android
+    const buffer = ctx.createBuffer(1, 1, 22050);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    source.start(0);
+    audioContextUnlocked = ctx.state === "running";
+    return ctx.state === "running";
+  } catch {
+    return false;
+  }
+}
+
+if (typeof window !== "undefined") {
+  const handleInteraction = () => {
+    void unlockAudioPipeline();
+  };
+  window.addEventListener("pointerdown", handleInteraction, { passive: true, capture: true });
+  window.addEventListener("click", handleInteraction, { passive: true, capture: true });
+  window.addEventListener("touchstart", handleInteraction, { passive: true, capture: true });
+  window.addEventListener("touchend", handleInteraction, { passive: true, capture: true });
+  window.addEventListener("keydown", handleInteraction, { passive: true, capture: true });
+}
+
+export async function playNotificationSound(type: NotificationSoundType): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  try {
+    const ctx = getSharedAudioContext();
+    if (!ctx) return false;
+
+    if (ctx.state === "suspended") {
+      await ctx.resume().catch(() => {});
+    }
+
+    if (ctx.state !== "running") {
+      return false;
+    }
+
+    const t = ctx.currentTime;
+
+    const playTone = (
+      freq: number,
+      offset: number,
+      duration: number,
+      vol = 0.30,
+      waveType: OscillatorType = "sine"
+    ) => {
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = waveType;
+        osc.frequency.setValueAtTime(freq, t + offset);
+        gain.gain.setValueAtTime(vol, t + offset);
+        gain.gain.linearRampToValueAtTime(0.0001, t + offset + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t + offset);
+        osc.stop(t + offset + duration);
+      } catch {}
+    };
+
+    switch (type) {
+      case "new_order":
+        // Tono doble ascendente y distintivo para nuevo pedido (D5 587Hz -> A5 880Hz)
+        playTone(587.33, 0, 0.14, 0.35, "triangle");
+        playTone(880.00, 0.12, 0.38, 0.35, "sine");
+        break;
+
+      case "preparacion":
+        // Tono armónico en preparación para el cliente (C5 523Hz -> E5 659Hz)
+        playTone(523.25, 0, 0.14, 0.30, "sine");
+        playTone(659.25, 0.11, 0.32, 0.30, "sine");
+        break;
+
+      case "listo":
+        // Campana alegre tríada mayor para retiro en local (C5 -> E5 -> G5)
+        playTone(523.25, 0, 0.10, 0.28, "triangle");
+        playTone(659.25, 0.09, 0.12, 0.30, "triangle");
+        playTone(783.99, 0.18, 0.42, 0.35, "sine");
+        break;
+
+      case "en_camino":
+        // Tono dinámico de despacho / envío en camino (F5 -> A5 -> C6)
+        playTone(698.46, 0, 0.10, 0.28, "triangle");
+        playTone(880.00, 0.09, 0.12, 0.32, "triangle");
+        playTone(1046.50, 0.18, 0.40, 0.35, "sine");
+        break;
+
+      case "entregado":
+        // Tono cálido de entrega confirmada (E5 -> A5)
+        playTone(659.25, 0, 0.14, 0.30, "sine");
+        playTone(880.00, 0.11, 0.40, 0.32, "sine");
+        break;
+
+      case "status_change":
+      default:
+        playTone(587.33, 0, 0.25, 0.28, "sine");
+        break;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function addToast(toast: Omit<ToastNotification, "id" | "timestamp">) {
@@ -445,18 +574,86 @@ export function removeToast(id: string) {
   }));
 }
 
+const CUSTOMER_ORDERS_STORAGE_KEY = "kiosco-customer-order-ids-v1";
+
+export function getCustomerOrderIds(): string[] {
+  try {
+    const raw = localStorage.getItem(CUSTOMER_ORDERS_STORAGE_KEY);
+    const list: string[] = raw ? JSON.parse(raw) : [];
+    const lastId = localStorage.getItem(LAST_ORDER_STORAGE_KEY);
+    if (lastId && !list.includes(lastId)) {
+      list.unshift(lastId);
+    }
+    return list;
+  } catch {
+    const lastId = localStorage.getItem(LAST_ORDER_STORAGE_KEY);
+    return lastId ? [lastId] : [];
+  }
+}
+
+export function saveCustomerOrderId(orderId: string) {
+  try {
+    const list = getCustomerOrderIds().filter((id) => id !== orderId);
+    list.unshift(orderId);
+    localStorage.setItem(CUSTOMER_ORDERS_STORAGE_KEY, JSON.stringify(list.slice(0, 30)));
+    localStorage.setItem(LAST_ORDER_STORAGE_KEY, orderId);
+  } catch {}
+}
+
+export async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return "unsupported";
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    return permission;
+  } catch {
+    return "unsupported";
+  }
+}
+
+export function getNotificationPermissionStatus(): NotificationPermission | "unsupported" {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return "unsupported";
+  }
+  return Notification.permission;
+}
+
+export function cleanExpiredNotifications() {
+  const now = Date.now();
+  setState((s) => {
+    const current = s.notifications || [];
+    const valid = current.filter(
+      (n) => now - n.timestamp < NOTIFICATION_TTL_MS && !n.read
+    );
+    if (valid.length !== current.length) {
+      try {
+        localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(valid));
+      } catch {}
+      return { ...s, notifications: valid };
+    }
+    return s;
+  });
+}
+
 export function addNotification(
   notif: Omit<NotificationItem, "id" | "timestamp" | "read">
 ) {
+  const now = Date.now();
   const item: NotificationItem = {
     ...notif,
-    id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    timestamp: Date.now(),
+    id: `notif_${now}_${Math.random().toString(36).substring(2, 6)}`,
+    timestamp: now,
     read: false,
   };
 
   setState((s) => {
-    const updated = [item, ...(s.notifications || [])].slice(0, 50);
+    const current = s.notifications || [];
+    // Filtrar expiradas o atendidas antes de agregar la nueva
+    const validExisting = current.filter(
+      (n) => now - n.timestamp < NOTIFICATION_TTL_MS && !n.read
+    );
+    const updated = [item, ...validExisting].slice(0, MAX_STORED_NOTIFICATIONS);
     try {
       localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
     } catch {}
@@ -466,19 +663,53 @@ export function addNotification(
     };
   });
 
+  // Temporizador de caducidad automática para esta notificación
+  if (typeof window !== "undefined") {
+    setTimeout(() => {
+      cleanExpiredNotifications();
+    }, NOTIFICATION_TTL_MS + 200);
+  }
+
   addToast({
     title: item.title,
     message: item.message,
     type: item.type,
     kioskId: item.kioskId,
   });
+
+  // Notificación nativa para Chrome / PWA instalada en Android y escritorio
+  if (
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    Notification.permission === "granted"
+  ) {
+    try {
+      if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+        navigator.serviceWorker.ready
+          .then((reg) => {
+            reg.showNotification(item.title, {
+              body: item.message,
+              icon: "/favicon.svg",
+              badge: "/favicon.svg",
+              tag: item.id,
+              renotify: true,
+              vibrate: [200, 100, 200],
+            } as any);
+          })
+          .catch(() => {
+            new Notification(item.title, { body: item.message, icon: "/favicon.svg" });
+          });
+      } else {
+        new Notification(item.title, { body: item.message, icon: "/favicon.svg" });
+      }
+    } catch {}
+  }
 }
 
 export function markNotificationAsRead(id: string) {
+  // Al abrir o atender la notificación, se marca como atendida y desaparece
   setState((s) => {
-    const updated = (s.notifications || []).map((n) =>
-      n.id === id ? { ...n, read: true } : n
-    );
+    const updated = (s.notifications || []).filter((n) => n.id !== id);
     try {
       localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
     } catch {}
@@ -488,13 +719,10 @@ export function markNotificationAsRead(id: string) {
 
 export function markAllNotificationsAsRead(forAdmin?: boolean, kioskId?: string) {
   setState((s) => {
-    const updated = (s.notifications || []).map((n) => {
+    const updated = (s.notifications || []).filter((n) => {
       const matchAdmin = forAdmin === undefined || n.forAdmin === forAdmin;
       const matchKiosk = !kioskId || n.kioskId === kioskId;
-      if (matchAdmin && matchKiosk) {
-        return { ...n, read: true };
-      }
-      return n;
+      return !(matchAdmin && matchKiosk);
     });
     try {
       localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(updated));
@@ -514,6 +742,7 @@ export function deleteNotification(id: string) {
 }
 
 const knownOrders = new Map<string, OrderStatus>();
+const notifiedOrderEvents = new Set<string>();
 let isInitialOrdersLoad = true;
 
 const STATUS_TEXTS: Record<OrderStatus, string> = {
@@ -525,12 +754,26 @@ const STATUS_TEXTS: Record<OrderStatus, string> = {
 
 async function refreshOrders() {
   try {
-    const query = state.selectedKioskId ? `?kioskId=${encodeURIComponent(state.selectedKioskId)}` : "";
+    const isAdminView = state.view === "admin" || state.view === "superadmin" || !!adminToken;
+    let query = state.selectedKioskId ? `?kioskId=${encodeURIComponent(state.selectedKioskId)}` : "";
+
+    if (!isAdminView) {
+      const customerIds = getCustomerOrderIds();
+      if (customerIds.length === 0) {
+        // El cliente todavía no ha realizado pedidos
+        setState((s) => ({ ...s, orders: [] }));
+        return;
+      }
+      query += `${query ? "&" : "?"}orderIds=${encodeURIComponent(customerIds.join(","))}`;
+    }
+
     const orders = await api<Order[]>(`/orders${query}`);
 
     if (isInitialOrdersLoad) {
       orders.forEach((o) => {
         knownOrders.set(o.id, o.status);
+        notifiedOrderEvents.add(`new_${o.id}`);
+        notifiedOrderEvents.add(`status_${o.id}_${o.status}`);
       });
       isInitialOrdersLoad = false;
       setState((s) => ({ ...s, orders }));
@@ -539,7 +782,6 @@ async function refreshOrders() {
 
     const currentLastOrderId = localStorage.getItem(LAST_ORDER_STORAGE_KEY);
     const activeKioskId = state.selectedKioskId;
-    const isAdminView = state.view === "admin" || state.view === "superadmin" || !!adminToken;
 
     for (const o of orders) {
       const prevStatus = knownOrders.get(o.id);
@@ -548,34 +790,68 @@ async function refreshOrders() {
       if (prevStatus === undefined) {
         // Pedido totalmente nuevo
         const createdAtMs = o.createdAt ? new Date(o.createdAt).getTime() : Date.now();
-        const isRecent = Date.now() - createdAtMs < 180000; // Creado hace menos de 3 min
+        const isRecent = Date.now() - createdAtMs < NOTIFICATION_TTL_MS;
 
         if (isAdminView && orderKioskId === activeKioskId && isRecent) {
-          const orderNumDisplay = o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(-4)}`;
-          addNotification({
-            title: "🔔 ¡Nuevo pedido recibido!",
-            message: `Pedido ${orderNumDisplay} de ${o.customerName} (${o.delivery === "envio" ? "Envío" : "Retiro"}) - $${o.total.toLocaleString("es-AR")}`,
-            type: "order",
-            kioskId: orderKioskId,
-            orderId: o.id,
-            forAdmin: true,
-          });
-          playNotificationSound("new_order");
+          const eventKey = `new_${o.id}`;
+          if (!notifiedOrderEvents.has(eventKey)) {
+            notifiedOrderEvents.add(eventKey);
+            const orderNumDisplay = o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(-4)}`;
+            addNotification({
+              title: "🔔 ¡Nuevo pedido recibido!",
+              message: `Pedido ${orderNumDisplay} de ${o.customerName} (${o.delivery === "envio" ? "Envío" : "Retiro"}) - $${o.total.toLocaleString("es-AR")}`,
+              type: "order",
+              kioskId: orderKioskId,
+              orderId: o.id,
+              forAdmin: true,
+            });
+            void playNotificationSound("new_order");
+          }
         }
       } else if (prevStatus !== o.status) {
-        // Cambio de estado
-        if (currentLastOrderId && o.id === currentLastOrderId) {
-          const statusText = STATUS_TEXTS[o.status] || o.status;
-          const orderNumDisplay = o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(-4)}`;
-          addNotification({
-            title: "📦 Estado de tu pedido",
-            message: `Tu pedido ${orderNumDisplay} cambió a: ${statusText}`,
-            type: "info",
-            kioskId: orderKioskId,
-            orderId: o.id,
-            forAdmin: false,
-          });
-          playNotificationSound("status_change");
+        // Cambio de estado relevante únicamente para el cliente que generó el pedido
+        const customerIds = getCustomerOrderIds();
+        const isTargetCustomerOrder = customerIds.includes(o.id) || (currentLastOrderId && o.id === currentLastOrderId);
+
+        if (!isAdminView && isTargetCustomerOrder && orderKioskId === activeKioskId) {
+          const eventKey = `status_${o.id}_${o.status}`;
+          if (!notifiedOrderEvents.has(eventKey)) {
+            notifiedOrderEvents.add(eventKey);
+            const orderNumDisplay = o.orderNumber != null ? `#${o.orderNumber}` : `#${o.id.slice(-4)}`;
+            let title = "📦 Estado de tu pedido";
+            let message = `Tu pedido ${orderNumDisplay} cambió a: ${STATUS_TEXTS[o.status] || o.status}`;
+            let soundType: NotificationSoundType = "status_change";
+
+            if (o.status === "preparacion") {
+              title = "👨‍🍳 Pedido en preparación";
+              message = `Tu pedido ${orderNumDisplay} está siendo preparado en este momento.`;
+              soundType = "preparacion";
+            } else if (o.status === "listo") {
+              if (o.delivery === "envio") {
+                title = "🛵 ¡Tu pedido está en camino!";
+                message = `Tu pedido ${orderNumDisplay} ya salió y va en camino a tu domicilio.`;
+                soundType = "en_camino";
+              } else {
+                title = "🎉 ¡Tu pedido está listo!";
+                message = `Tu pedido ${orderNumDisplay} está listo para retirar por el local.`;
+                soundType = "listo";
+              }
+            } else if (o.status === "entregado") {
+              title = "✅ Pedido entregado";
+              message = `Tu pedido ${orderNumDisplay} fue entregado con éxito. ¡Muchas gracias!`;
+              soundType = "entregado";
+            }
+
+            addNotification({
+              title,
+              message,
+              type: o.status === "entregado" || o.status === "listo" ? "success" : "info",
+              kioskId: orderKioskId,
+              orderId: o.id,
+              forAdmin: false,
+            });
+            void playNotificationSound(soundType);
+          }
         }
       }
 
@@ -706,7 +982,9 @@ function selectKiosk(kioskId: string) {
 
   setState((s) => {
     const isDifferentKiosk = s.selectedKioskId !== kioskId;
-    const targetKiosk = s.publicKiosks.find((k) => k.id === kioskId || k.slug === kioskId);
+    const targetKiosk =
+      s.publicKiosks.find((k) => k.id === kioskId || k.slug === kioskId) ||
+      adminUser?.assignedKiosks?.find((k) => k.id === kioskId || k.slug === kioskId);
     const realKioskId = targetKiosk?.id || kioskId;
     const fallbackName = targetKiosk?.name || "";
     const fallbackSlug = targetKiosk?.slug || realKioskId;
@@ -734,7 +1012,7 @@ function selectKiosk(kioskId: string) {
         description: null,
         logoUrl: null,
         kioskId: realKioskId,
-        active: true,
+        active: targetKiosk ? targetKiosk.active !== false : true,
       },
     };
   });
@@ -830,13 +1108,26 @@ export async function bootstrap() {
         }
       }
     } else {
-      // Validate whether activeKioskToSelect is actually among publicKiosks
-      const isValid = state.publicKiosks.some(
-        (k) => k.id === activeKioskToSelect || k.slug === activeKioskToSelect
-      );
+      // Validate whether activeKioskToSelect is valid
+      const isAssignedToAdmin =
+        adminUser?.role === "superadmin" ||
+        (adminUser?.assignedKiosks || []).some(
+          (k) => k.id === activeKioskToSelect || k.slug === activeKioskToSelect
+        ) ||
+        adminUser?.kioskId === activeKioskToSelect;
+
+      const isValid =
+        Boolean(isAssignedToAdmin && activeKioskToSelect) ||
+        state.publicKiosks.some(
+          (k) => k.id === activeKioskToSelect || k.slug === activeKioskToSelect
+        );
 
       if (!isValid) {
-        if (state.publicKiosks.length > 0) {
+        if (adminUser?.role === "admin" && (adminUser.assignedKiosks?.length ?? 0) > 0) {
+          activeKioskToSelect = adminUser.assignedKiosks![0].id;
+          setState((s) => ({ ...s, selectedKioskId: activeKioskToSelect }));
+          try { localStorage.setItem(SELECTED_KIOSK_KEY, activeKioskToSelect); } catch {}
+        } else if (state.publicKiosks.length > 0) {
           activeKioskToSelect = state.publicKiosks[0].id;
           setState((s) => ({ ...s, selectedKioskId: activeKioskToSelect }));
           try { localStorage.setItem(SELECTED_KIOSK_KEY, activeKioskToSelect); } catch {}
@@ -898,6 +1189,84 @@ export const store = {
   markNotificationAsRead: (id: string) => markNotificationAsRead(id),
   markAllNotificationsAsRead: (forAdmin?: boolean, kioskId?: string) => markAllNotificationsAsRead(forAdmin, kioskId),
   deleteNotification: (id: string) => deleteNotification(id),
+  cleanExpiredNotifications: () => cleanExpiredNotifications(),
+  playNotificationSound: (type: NotificationSoundType) => playNotificationSound(type),
+  getAudioStatus: () => getAudioStatus(),
+  unlockAudioPipeline: () => unlockAudioPipeline(),
+  simulateTestNotification: (
+    type: "new_order" | "preparacion" | "listo" | "en_camino" | "entregado",
+    kioskId?: string
+  ) => {
+    if (adminUser?.role !== "superadmin") {
+      console.warn("Acceso denegado: solo SuperAdmin puede ejecutar simulaciones de prueba.");
+      return;
+    }
+    const targetKioskId = kioskId || state.selectedKioskId;
+    const testOrderId = `test_${Date.now()}`;
+    const testOrderNum = Math.floor(100 + Math.random() * 900);
+
+    switch (type) {
+      case "new_order":
+        addNotification({
+          title: "🔔 [PRUEBA] ¡Nuevo pedido recibido!",
+          message: `Pedido #${testOrderNum} de Cliente de Prueba (Envío) - $14.500`,
+          type: "order",
+          kioskId: targetKioskId,
+          orderId: testOrderId,
+          forAdmin: true,
+        });
+        void playNotificationSound("new_order");
+        break;
+
+      case "preparacion":
+        addNotification({
+          title: "👨‍🍳 [PRUEBA] Pedido en preparación",
+          message: `Tu pedido #${testOrderNum} está siendo preparado en este momento.`,
+          type: "info",
+          kioskId: targetKioskId,
+          orderId: testOrderId,
+          forAdmin: false,
+        });
+        void playNotificationSound("preparacion");
+        break;
+
+      case "listo":
+        addNotification({
+          title: "🎉 [PRUEBA] ¡Tu pedido está listo!",
+          message: `Tu pedido #${testOrderNum} está listo para retirar por el local.`,
+          type: "success",
+          kioskId: targetKioskId,
+          orderId: testOrderId,
+          forAdmin: false,
+        });
+        void playNotificationSound("listo");
+        break;
+
+      case "en_camino":
+        addNotification({
+          title: "🛵 [PRUEBA] ¡Tu pedido está en camino!",
+          message: `Tu pedido #${testOrderNum} ya salió y va en camino a tu domicilio.`,
+          type: "info",
+          kioskId: targetKioskId,
+          orderId: testOrderId,
+          forAdmin: false,
+        });
+        void playNotificationSound("en_camino");
+        break;
+
+      case "entregado":
+        addNotification({
+          title: "✅ [PRUEBA] Pedido entregado",
+          message: `Tu pedido #${testOrderNum} fue entregado con éxito. ¡Muchas gracias!`,
+          type: "success",
+          kioskId: targetKioskId,
+          orderId: testOrderId,
+          forAdmin: false,
+        });
+        void playNotificationSound("entregado");
+        break;
+    }
+  },
   setView: (view: "client" | "admin" | "superadmin") => {
     setState((s) => ({ ...s, view }));
   },
@@ -980,9 +1349,9 @@ export const store = {
     });
 
     knownOrders.set(real.id, real.status);
-    try {
-      localStorage.setItem(LAST_ORDER_STORAGE_KEY, real.id);
-    } catch {}
+    notifiedOrderEvents.add(`new_${real.id}`);
+    notifiedOrderEvents.add(`status_${real.id}_${real.status}`);
+    saveCustomerOrderId(real.id);
 
     const orderNumDisplay = real.orderNumber != null ? `#${real.orderNumber}` : `#${real.id.slice(-4)}`;
     addNotification({
@@ -1006,6 +1375,7 @@ export const store = {
 
   updateOrderStatus: (orderId: string, status: OrderStatus) => {
     knownOrders.set(orderId, status);
+    notifiedOrderEvents.add(`status_${orderId}_${status}`);
     setState((s) => ({
       ...s,
       orders: s.orders.map((o) => (o.id === orderId ? { ...o, status } : o)),
@@ -1016,6 +1386,30 @@ export const store = {
     }).catch(() => {
       void refreshOrders();
     });
+  },
+
+  updateOrder: async (
+    orderId: string,
+    updates: Partial<Omit<Order, "id" | "kioskId" | "createdAt">>,
+  ): Promise<{ ok: boolean; order?: Order; error?: string }> => {
+    try {
+      if (updates.status) {
+        knownOrders.set(orderId, updates.status);
+        notifiedOrderEvents.add(`status_${orderId}_${updates.status}`);
+      }
+      const updated = await api<Order>(`/orders/${orderId}`, {
+        method: "PATCH",
+        json: updates,
+      });
+      setState((s) => ({
+        ...s,
+        orders: s.orders.map((o) => (o.id === orderId ? { ...o, ...updated } : o)),
+      }));
+      return { ok: true, order: updated };
+    } catch (err: any) {
+      void refreshOrders();
+      return { ok: false, error: err?.message || "Error al actualizar el pedido" };
+    }
   },
 
   deleteOrder: (orderId: string) => {
@@ -1181,8 +1575,10 @@ getLastOrder: (): Order | null => {
         } catch {}
 
         if (res.user.role === "admin") {
-          const targetKiosk = res.user.assignedKiosks?.[0]?.id || res.user.kioskId || "kiosk-franco";
-          selectKiosk(targetKiosk);
+          const targetKiosk = res.user.assignedKiosks?.[0]?.id || res.user.kioskId;
+          if (targetKiosk) {
+            selectKiosk(targetKiosk);
+          }
         } else {
           setState((s) => ({ ...s, urlKioskNotice: null }));
         }
@@ -1384,7 +1780,8 @@ getLastOrder: (): Order | null => {
     ok: boolean;
     invitation?: AdminInvitation;
     message?: string;
-    emailResult?: { simulated: boolean; inviteUrl?: string };
+    inviteUrl?: string;
+    emailResult?: { simulated: boolean; inviteUrl?: string; error?: string };
     error?: string;
   }> => {
     try {
@@ -1392,16 +1789,19 @@ getLastOrder: (): Order | null => {
         ok: boolean;
         invitation: AdminInvitation;
         message: string;
-        emailResult?: { simulated: boolean; inviteUrl?: string };
+        inviteUrl?: string;
+        emailResult?: { simulated: boolean; inviteUrl?: string; error?: string };
       }>("/admin/invitations", {
         method: "POST",
         json: data,
       });
+      const inviteUrl = res.inviteUrl || res.emailResult?.inviteUrl;
       return {
         ok: true,
         invitation: res.invitation,
         message: res.message,
-        emailResult: res.emailResult,
+        inviteUrl,
+        emailResult: res.emailResult || (inviteUrl ? { simulated: true, inviteUrl } : undefined),
       };
     } catch (e: any) {
       return {
@@ -1417,7 +1817,8 @@ getLastOrder: (): Order | null => {
     ok: boolean;
     invitation?: AdminInvitation;
     message?: string;
-    emailResult?: { simulated: boolean; inviteUrl?: string };
+    inviteUrl?: string;
+    emailResult?: { simulated: boolean; inviteUrl?: string; error?: string };
     error?: string;
   }> => {
     try {
@@ -1425,15 +1826,18 @@ getLastOrder: (): Order | null => {
         ok: boolean;
         invitation: AdminInvitation;
         message: string;
-        emailResult?: { simulated: boolean; inviteUrl?: string };
+        inviteUrl?: string;
+        emailResult?: { simulated: boolean; inviteUrl?: string; error?: string };
       }>(`/admin/invitations/${id}/resend`, {
         method: "POST",
       });
+      const inviteUrl = res.inviteUrl || res.emailResult?.inviteUrl;
       return {
         ok: true,
         invitation: res.invitation,
         message: res.message,
-        emailResult: res.emailResult,
+        inviteUrl,
+        emailResult: res.emailResult || (inviteUrl ? { simulated: true, inviteUrl } : undefined),
       };
     } catch (e: any) {
       return { ok: false, error: e?.message || "Error al reenviar invitación" };
@@ -1684,10 +2088,20 @@ getLastOrder: (): Order | null => {
 
 if (typeof window !== "undefined") {
   void bootstrap();
-  // Refresh orders periodically so admin sees new orders without reload
+  // Sincronización ágil de pedidos y limpieza de notificaciones caducadas
   setInterval(() => {
+    cleanExpiredNotifications();
     void refreshOrders().catch(() => {});
-  }, 15000);
+  }, 4000);
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void refreshOrders().catch(() => {});
+      void unlockAudioPipeline().catch(() => {});
+    }
+  });
 }
 
 export function useStore<T>(selector: (s: State) => T): T {
@@ -1714,9 +2128,10 @@ export function formatOrderNumber(order: { orderNumber?: number | null; id: stri
   return `#${order.id}`;
 }
 
-export function buildWhatsappUrl(order: Order, settings: Settings): string {
-  const shopName = settings?.shopName || "Kiosco";
-  const whatsappNum = settings?.whatsappNumber || "5493437449728";
+export function buildWhatsappUrl(order: Order, settings: Settings, kioskOverride?: Kiosk): string {
+  const currentKiosk = kioskOverride || (typeof state !== "undefined" ? state.currentKiosk : undefined);
+  const shopName = settings?.shopName || currentKiosk?.name || "Tienda Online";
+  const whatsappNum = settings?.whatsappNumber || "";
   const orderNumDisplay = order.orderNumber != null ? `#${order.orderNumber}` : `#${order.id}`;
   const lines = [
     `*🛍️ Nuevo pedido ${orderNumDisplay} - ${shopName}*`,
@@ -1737,5 +2152,5 @@ export function buildWhatsappUrl(order: Order, settings: Settings): string {
   ].filter(Boolean) as string[];
   const text = encodeURIComponent(lines.join("\n"));
   const number = whatsappNum.replace(/\D/g, "");
-  return `https://wa.me/${number}?text=${text}`;
+  return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;
 }

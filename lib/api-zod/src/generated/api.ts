@@ -124,7 +124,22 @@ export const UpdateOrderStatusParams = zod.object({
 });
 
 export const UpdateOrderStatusBody = zod.object({
-  status: zod.enum(["nuevo", "preparacion", "listo", "entregado"]),
+  status: zod.enum(["nuevo", "preparacion", "listo", "entregado"]).optional(),
+  customerName: zod.string().optional(),
+  address: zod.string().optional(),
+  delivery: zod.enum(["retiro", "envio"]).optional(),
+  payment: zod.enum(["efectivo", "mercadopago"]).optional(),
+  items: zod
+    .array(
+      zod.object({
+        productId: zod.string(),
+        name: zod.string(),
+        price: zod.number(),
+        qty: zod.number(),
+      }),
+    )
+    .optional(),
+  total: zod.number().optional(),
 });
 
 export const UpdateOrderStatusResponse = zod.object({

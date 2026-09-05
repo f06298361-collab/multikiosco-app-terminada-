@@ -127,6 +127,7 @@ router.get("/admin/verify", requireAuth, async (req: AuthRequest, res): Promise<
     ok: true,
     user: {
       ...user,
+      id: user.userId,
       assignedKiosks,
     },
   });

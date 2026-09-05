@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, and } from "drizzle-orm";
 import { db, pool, ordersTable, kiosksTable, productsTable } from "@workspace/db";
 import {
   requireAdmin,
@@ -86,14 +86,38 @@ router.get("/orders", async (req, res): Promise<void> => {
       }
     }
 
+    const rawOrderId = (req.query.orderId as string) || (req.query.order_id as string);
+    const rawOrderIds = (req.query.orderIds as string);
+    const customerOrderIds = [
+      ...(rawOrderId ? [rawOrderId.trim()] : []),
+      ...(rawOrderIds ? rawOrderIds.split(",").map((s) => s.trim()).filter(Boolean) : []),
+    ];
+
     const query = db.select().from(ordersTable);
-    if (targetKioskId) {
-      query.where(eq(ordersTable.kioskId, targetKioskId));
-    } else {
-      // Solamente el SuperAdmin está habilitado para consultas sin filtro de kiosco
-      if (!payload || payload.role !== "superadmin") {
-        res.status(403).json({ error: "Acceso denegado. Se requiere especificar un kiosco válido." });
+
+    if (!payload || (payload.role !== "admin" && payload.role !== "superadmin")) {
+      // CLIENTE PÚBLICO:
+      // Solo puede consultar sus propios pedidos si provee orderId o orderIds.
+      // Jamás puede listar pedidos ajenos de la tienda.
+      if (customerOrderIds.length === 0) {
+        res.json([]);
         return;
+      }
+      query.where(
+        and(
+          eq(ordersTable.kioskId, targetKioskId!),
+          inArray(ordersTable.id, customerOrderIds)
+        )
+      );
+    } else if (payload.role === "admin") {
+      // ADMINISTRADOR DE KIOSCO:
+      // Únicamente ve los pedidos de su kiosco asignado.
+      query.where(eq(ordersTable.kioskId, targetKioskId!));
+    } else if (payload.role === "superadmin") {
+      // SUPERADMIN:
+      // Puede ver los pedidos del kiosco filtrado o todos los pedidos globales
+      if (targetKioskId) {
+        query.where(eq(ordersTable.kioskId, targetKioskId));
       }
     }
 
@@ -101,6 +125,38 @@ router.get("/orders", async (req, res): Promise<void> => {
     res.json(ListOrdersResponse.parse(rows.map(serialize)));
   } catch (err: any) {
     res.status(500).json({ error: err.message || "Error al obtener pedidos" });
+  }
+});
+
+router.get("/orders/:id", async (req, res): Promise<void> => {
+  try {
+    const token =
+      (typeof req.headers["x-admin-token"] === "string" ? req.headers["x-admin-token"] : undefined) ||
+      (req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7).trim() : undefined);
+    const payload = verifyToken(token);
+
+    const [order] = await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.id, req.params.id))
+      .limit(1);
+
+    if (!order) {
+      res.status(404).json({ error: "Pedido no encontrado" });
+      return;
+    }
+
+    if (payload && payload.role === "admin") {
+      const allowed = await userCanAccessKiosk(payload, order.kioskId);
+      if (!allowed) {
+        res.status(403).json({ error: "Acceso denegado. No tiene permisos para este pedido." });
+        return;
+      }
+    }
+
+    res.json(serialize(order));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Error al obtener el pedido" });
   }
 });
 
@@ -228,9 +284,18 @@ router.patch("/orders/:id", requireAdmin, async (req: AuthRequest, res): Promise
     return;
   }
 
+  const updateData: Partial<typeof ordersTable.$inferInsert> = {};
+  if (parsed.data.status !== undefined) updateData.status = parsed.data.status;
+  if (parsed.data.customerName !== undefined) updateData.customerName = parsed.data.customerName.trim();
+  if (parsed.data.address !== undefined) updateData.address = parsed.data.address.trim();
+  if (parsed.data.delivery !== undefined) updateData.delivery = parsed.data.delivery;
+  if (parsed.data.payment !== undefined) updateData.payment = parsed.data.payment;
+  if (parsed.data.items !== undefined) updateData.items = parsed.data.items;
+  if (parsed.data.total !== undefined) updateData.total = Math.round(parsed.data.total);
+
   const [row] = await db
     .update(ordersTable)
-    .set({ status: parsed.data.status })
+    .set(updateData)
     .where(eq(ordersTable.id, params.data.id))
     .returning();
 

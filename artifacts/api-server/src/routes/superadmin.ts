@@ -1093,7 +1093,7 @@ router.post("/admin/invitations", async (req: AuthRequest, res): Promise<void> =
     const cleanAppUrl = appUrl.replace(/\/+$/, "");
     const inviteUrl = `${cleanAppUrl}/?invitation=${encodeURIComponent(rawToken)}`;
 
-    // 5. Send invitation email
+    // 5. Send invitation email (o registrar en modo manual)
     const emailResult = await sendAdminInvitationEmail({
       toEmail: cleanEmail,
       adminName: cleanName,
@@ -1101,33 +1101,15 @@ router.post("/admin/invitations", async (req: AuthRequest, res): Promise<void> =
       inviteUrl,
     });
 
-    if (!emailResult.ok) {
-      res.status(502).json({
-        ok: false,
-        error: `La invitación fue registrada pero falló el envío del email a través de Resend: ${emailResult.error}`,
-        invitation: {
-          id: newInvitation.id,
-          email: newInvitation.email,
-          name: newInvitation.name,
-          kioskId: newInvitation.kioskId,
-          kioskName: targetKiosk.name,
-          status: "pending",
-          expiresAt: newInvitation.expiresAt,
-          createdAt: newInvitation.createdAt,
-        },
-        emailResult: {
-          simulated: false,
-          error: emailResult.error,
-        },
-      });
-      return;
-    }
+    const successMessage = emailResult.ok
+      ? (emailResult.simulated
+          ? `Invitación registrada para ${cleanEmail}. Copia el enlace para enviárselo manualmente.`
+          : `Invitación enviada exitosamente por email a ${cleanEmail}`)
+      : `Invitación registrada para ${cleanEmail}. (Aviso: no se pudo enviar automáticamente: ${emailResult.error}). Copia el enlace para enviárselo manualmente.`;
 
     res.status(201).json({
       ok: true,
-      message: emailResult.simulated
-        ? `Invitación creada para ${cleanEmail}. (Modo desarrollo: revisá el log del servidor para el enlace)`
-        : `Invitación enviada exitosamente por email a ${cleanEmail}`,
+      message: successMessage,
       invitation: {
         id: newInvitation.id,
         email: newInvitation.email,
@@ -1138,9 +1120,11 @@ router.post("/admin/invitations", async (req: AuthRequest, res): Promise<void> =
         expiresAt: newInvitation.expiresAt,
         createdAt: newInvitation.createdAt,
       },
+      inviteUrl,
       emailResult: {
-        simulated: emailResult.simulated || false,
-        inviteUrl: emailResult.simulated ? inviteUrl : undefined,
+        simulated: emailResult.simulated ?? true,
+        inviteUrl,
+        error: emailResult.error,
       },
     });
   } catch (err) {
@@ -1207,28 +1191,15 @@ router.post("/admin/invitations/:id/resend", async (req: AuthRequest, res): Prom
       inviteUrl,
     });
 
-    if (!emailResult.ok) {
-      res.status(502).json({
-        ok: false,
-        error: `No se pudo reenviar el email a través de Resend: ${emailResult.error}`,
-        invitation: {
-          id: updated.id,
-          email: updated.email,
-          name: updated.name,
-          kioskId: updated.kioskId,
-          kioskName: targetKiosk?.name || updated.kioskId,
-          status: "pending",
-          expiresAt: updated.expiresAt,
-        },
-      });
-      return;
-    }
+    const resendMessage = emailResult.ok
+      ? (emailResult.simulated
+          ? `Nuevo enlace de activación generado para ${updated.email}. Copia el enlace para enviárselo manualmente.`
+          : `Invitación reenviada exitosamente a ${updated.email}`)
+      : `Nuevo enlace generado para ${updated.email}. Copia el enlace para enviárselo manualmente.`;
 
     res.json({
       ok: true,
-      message: emailResult.simulated
-        ? `Invitación reenviada a ${updated.email}. (Modo desarrollo: revisá el log del servidor para el enlace)`
-        : `Invitación reenviada exitosamente a ${updated.email}`,
+      message: resendMessage,
       invitation: {
         id: updated.id,
         email: updated.email,
@@ -1238,9 +1209,11 @@ router.post("/admin/invitations/:id/resend", async (req: AuthRequest, res): Prom
         status: "pending",
         expiresAt: updated.expiresAt,
       },
+      inviteUrl,
       emailResult: {
-        simulated: emailResult.simulated || false,
-        inviteUrl: emailResult.simulated ? inviteUrl : undefined,
+        simulated: emailResult.simulated ?? true,
+        inviteUrl,
+        error: emailResult.error,
       },
     });
   } catch (err) {

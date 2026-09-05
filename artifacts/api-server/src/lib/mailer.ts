@@ -39,7 +39,10 @@ export async function sendAdminInvitationEmail(
 ): Promise<SendEmailResult> {
   const { toEmail, adminName, kioskName, inviteUrl } = params;
   const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.EMAIL_FROM || "Kiosco Plataforma <onboarding@resend.dev>";
+  const configuredFrom = process.env.EMAIL_FROM?.trim();
+  const fromEmail = configuredFrom && configuredFrom.length > 0
+    ? configuredFrom
+    : "Ferrapp <onboarding@resend.dev>";
 
   const emailSubject = `Invitación para administrar ${kioskName} en la plataforma`;
 
@@ -98,6 +101,26 @@ export async function sendAdminInvitationEmail(
 </body>
 </html>
   `;
+
+  // SUSPENSIÓN TEMPORAL: Modo manual activo para invitaciones.
+  // Resend queda 100% conservado en el código para reactivarse cuando se verifique el dominio propio
+  // (mediante RESEND_AUTO_SEND=true en el entorno de Render).
+  const isAutoSendEnabled = process.env.RESEND_AUTO_SEND === "true";
+
+  if (!isAutoSendEnabled) {
+    console.log("===============================================================");
+    console.log("[EMAIL SERVICE - MODO MANUAL TEMPORAL ACTIVO]");
+    console.log(`Invitación generada para: ${toEmail} (${adminName})`);
+    console.log(`Kiosco asignado: ${kioskName}`);
+    console.log(`Enlace único de invitación: ${inviteUrl}`);
+    console.log("Nota: Envío automático suspendido hasta verificar dominio en Resend.");
+    console.log("===============================================================");
+    return {
+      ok: true,
+      simulated: true,
+      messageId: "manual-" + Date.now(),
+    };
+  }
 
   if (!apiKey) {
     console.log("===============================================================");

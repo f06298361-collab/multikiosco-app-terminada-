@@ -53,10 +53,10 @@ app.use((req, res, next) => {
     if (err) {
       res.status(200).send(`<!DOCTYPE html>
 <html>
-<head><title>Kiosco Franco</title></head>
+<head><title>Tienda Online</title></head>
 <body>
   <div style="font-family: system-ui, sans-serif; display: flex; height: 100vh; align-items: center; justify-content: center; flex-direction: column;">
-    <h2>Kiosco Franco - Iniciando...</h2>
+    <h2>Iniciando sistema...</h2>
     <p>El frontend se está construyendo. Por favor refresca en unos segundos.</p>
   </div>
 </body>
