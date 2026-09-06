@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { store } from "./store";
 import { Lock, Mail, CheckCircle2, AlertCircle, ArrowRight, ShieldCheck, Store, RefreshCw } from "lucide-react";
 

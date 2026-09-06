@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, productsTable } from "@workspace/db";
+import { db, productsTable, kiosksTable } from "@workspace/db";
 import { requireAdmin, verifyToken, userCanAccessKiosk, type AuthRequest } from "../lib/auth";
 import { resolveKioskFromRequest } from "../lib/kiosk-resolver";
 import {
@@ -37,6 +37,11 @@ router.get("/products", async (req, res): Promise<void> => {
     targetKioskId = resolvedKiosk.id;
   }
 
+  if (!resolvedKiosk.exists) {
+    res.status(404).json({ error: "El negocio especificado no existe o fue eliminado.", deleted: true });
+    return;
+  }
+
   if (
     resolvedKiosk.active === false &&
     !(
@@ -46,7 +51,8 @@ router.get("/products", async (req, res): Promise<void> => {
     )
   ) {
     res.status(403).json({
-      error: "Este kiosco se encuentra inactivo y no está disponible públicamente.",
+      error: "Este negocio se encuentra inactivo y no está disponible públicamente.",
+      suspended: true,
     });
     return;
   }
@@ -59,10 +65,15 @@ router.get("/products", async (req, res): Promise<void> => {
     }
   }
 
-  const query = db.select().from(productsTable);
-  if (targetKioskId) {
-    query.where(eq(productsTable.kioskId, targetKioskId));
+  if (!targetKioskId) {
+    res.json([]);
+    return;
   }
+
+  const query = db
+    .select()
+    .from(productsTable)
+    .where(eq(productsTable.kioskId, targetKioskId));
   const rows = await query.orderBy(productsTable.createdAt);
   const formattedRows = rows.map((r: any) => ({
     ...r,
@@ -90,6 +101,25 @@ router.post("/products", requireAdmin, async (req: AuthRequest, res): Promise<vo
   const allowed = await userCanAccessKiosk(req.user, kioskId);
   if (!allowed) {
     res.status(403).json({ error: "Acceso denegado. No tiene permisos para este kiosco." });
+    return;
+  }
+
+  const [targetKiosk] = await db
+    .select({ active: kiosksTable.active })
+    .from(kiosksTable)
+    .where(eq(kiosksTable.id, kioskId))
+    .limit(1);
+
+  if (!targetKiosk) {
+    res.status(404).json({ error: "El negocio no existe o fue eliminado.", deleted: true });
+    return;
+  }
+
+  if (req.user?.role !== "superadmin" && targetKiosk.active === false) {
+    res.status(403).json({
+      error: "Este negocio se encuentra suspendido. No se pueden agregar productos.",
+      suspended: true,
+    });
     return;
   }
 
@@ -144,6 +174,26 @@ router.patch("/products/:id", requireAdmin, async (req: AuthRequest, res): Promi
     return;
   }
 
+  if (req.user?.role !== "superadmin") {
+    const [targetKiosk] = await db
+      .select({ active: kiosksTable.active })
+      .from(kiosksTable)
+      .where(eq(kiosksTable.id, existing.kioskId))
+      .limit(1);
+
+    if (!targetKiosk) {
+      res.status(404).json({ error: "El negocio no existe o fue eliminado.", deleted: true });
+      return;
+    }
+    if (targetKiosk.active === false) {
+      res.status(403).json({
+        error: "Este negocio se encuentra suspendido. No se pueden modificar productos.",
+        suspended: true,
+      });
+      return;
+    }
+  }
+
   const [row] = await db
     .update(productsTable)
     .set(parsed.data)
@@ -175,6 +225,26 @@ router.delete("/products/:id", requireAdmin, async (req: AuthRequest, res): Prom
   if (!allowed) {
     res.status(403).json({ error: "Acceso denegado. No tiene permisos para eliminar productos de este kiosco." });
     return;
+  }
+
+  if (req.user?.role !== "superadmin") {
+    const [targetKiosk] = await db
+      .select({ active: kiosksTable.active })
+      .from(kiosksTable)
+      .where(eq(kiosksTable.id, existing.kioskId))
+      .limit(1);
+
+    if (!targetKiosk) {
+      res.status(404).json({ error: "El negocio no existe o fue eliminado.", deleted: true });
+      return;
+    }
+    if (targetKiosk.active === false) {
+      res.status(403).json({
+        error: "Este negocio se encuentra suspendido. No se pueden eliminar productos.",
+        suspended: true,
+      });
+      return;
+    }
   }
 
   await db

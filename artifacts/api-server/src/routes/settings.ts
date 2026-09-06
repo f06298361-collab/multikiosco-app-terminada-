@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, or } from "drizzle-orm";
 import { db, settingsTable, kiosksTable } from "@workspace/db";
@@ -236,19 +238,25 @@ router.get("/kiosk-icon", async (req, res): Promise<void> => {
   }
   const logoUrl = (row as any).logoUrl;
 
-  if (logoUrl && typeof logoUrl === "string" && logoUrl.startsWith("data:image/")) {
-    try {
-      const match = logoUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-      if (match) {
-        const mimeType = match[1];
-        const base64Data = match[2];
-        const imgBuffer = Buffer.from(base64Data, "base64");
-        res.setHeader("Content-Type", mimeType);
-        res.setHeader("Cache-Control", "public, max-age=86400");
-        res.send(imgBuffer);
-        return;
-      }
-    } catch {}
+  if (logoUrl && typeof logoUrl === "string") {
+    if (logoUrl.startsWith("data:image/")) {
+      try {
+        const match = logoUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+        if (match) {
+          const mimeType = match[1];
+          const base64Data = match[2];
+          const imgBuffer = Buffer.from(base64Data, "base64");
+          res.setHeader("Content-Type", mimeType);
+          res.setHeader("Cache-Control", "public, max-age=86400");
+          res.send(imgBuffer);
+          return;
+        }
+      } catch {}
+    } else if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.redirect(302, logoUrl);
+      return;
+    }
   }
 
   const name = row.shopName || kiosk.name || "Kiosco";
@@ -263,6 +271,57 @@ router.get("/kiosk-icon", async (req, res): Promise<void> => {
   res.setHeader("Content-Type", "image/svg+xml");
   res.setHeader("Cache-Control", "public, max-age=3600");
   res.send(svg);
+});
+
+// Endpoint dedicado para la imagen Open Graph de vistas previas (WhatsApp, Facebook, Twitter)
+// Requiere imágenes raster (JPEG o PNG), nunca SVG ni data URIs
+router.get("/kiosk-og-image", async (req, res): Promise<void> => {
+  try {
+    const kiosk = await resolveKioskFromRequest(req);
+    let logoUrl: string | null = null;
+    if (kiosk.exists) {
+      const row = await ensureSettingsForKiosk(kiosk.id);
+      logoUrl = (row as any)?.logoUrl || null;
+    }
+
+    if (logoUrl && typeof logoUrl === "string") {
+      if (logoUrl.startsWith("data:image/")) {
+        const match = logoUrl.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/);
+        if (match) {
+          const mimeType = match[1];
+          const base64Data = match[2];
+          const imgBuffer = Buffer.from(base64Data, "base64");
+          res.setHeader("Content-Type", mimeType);
+          res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
+          res.send(imgBuffer);
+          return;
+        }
+      } else if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.redirect(302, logoUrl);
+        return;
+      }
+    }
+
+    // Fallback profesional: servir el banner raster de FerRap (opengraph.jpg)
+    const candidates = [
+      path.resolve(process.cwd(), "artifacts/kiosco-franco/dist/public/opengraph.jpg"),
+      path.resolve(process.cwd(), "artifacts/kiosco-franco/public/opengraph.jpg"),
+    ];
+
+    for (const target of candidates) {
+      if (fs.existsSync(target)) {
+        res.setHeader("Content-Type", "image/jpeg");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.sendFile(target);
+        return;
+      }
+    }
+
+    res.status(404).send("OG image not found");
+  } catch (err) {
+    res.status(500).send("Error serving OG image");
+  }
 });
 
 router.put("/settings", requireAdmin, async (req: AuthRequest, res): Promise<void> => {
@@ -291,7 +350,7 @@ router.put("/settings", requireAdmin, async (req: AuthRequest, res): Promise<voi
     .limit(1);
 
   if (!existingKiosk) {
-    res.status(404).json({ error: "El kiosco especificado no existe." });
+    res.status(404).json({ error: "El negocio especificado no existe o fue eliminado.", deleted: true });
     return;
   }
 
@@ -299,6 +358,14 @@ router.put("/settings", requireAdmin, async (req: AuthRequest, res): Promise<voi
   if (!allowed) {
     res.status(403).json({
       error: "Acceso denegado. No tiene permisos para modificar la configuración de este kiosco.",
+    });
+    return;
+  }
+
+  if (req.user?.role !== "superadmin" && existingKiosk.active === false) {
+    res.status(403).json({
+      error: "Este negocio se encuentra suspendido. No se pueden modificar ajustes.",
+      suspended: true,
     });
     return;
   }

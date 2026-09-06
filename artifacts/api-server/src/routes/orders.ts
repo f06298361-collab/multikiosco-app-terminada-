@@ -22,8 +22,21 @@ const router: IRouter = Router();
 
 function serialize(row: typeof ordersTable.$inferSelect) {
   const createdAtDate = row.createdAt instanceof Date ? row.createdAt : new Date(row.createdAt || Date.now());
+  let items = row.items as any;
+  if (typeof items === "string") {
+    try {
+      items = JSON.parse(items);
+    } catch {
+      items = [];
+    }
+  }
+  if (!Array.isArray(items)) {
+    items = [];
+  }
   return {
     ...row,
+    address: row.address || "",
+    items,
     orderNumber: row.orderNumber != null ? Number(row.orderNumber) : undefined,
     createdAt: createdAtDate.toISOString(),
   };
@@ -282,6 +295,26 @@ router.patch("/orders/:id", requireAdmin, async (req: AuthRequest, res): Promise
   if (!allowed) {
     res.status(403).json({ error: "Acceso denegado. No tiene permisos para actualizar pedidos de este kiosco." });
     return;
+  }
+
+  if (req.user?.role !== "superadmin") {
+    const [kiosk] = await db
+      .select({ active: kiosksTable.active })
+      .from(kiosksTable)
+      .where(eq(kiosksTable.id, existing.kioskId))
+      .limit(1);
+
+    if (!kiosk) {
+      res.status(404).json({ error: "El negocio asociado a este pedido no existe o fue eliminado.", deleted: true });
+      return;
+    }
+    if (kiosk.active === false) {
+      res.status(403).json({
+        error: "Este negocio se encuentra suspendido. No se pueden modificar pedidos mientras permanezca inactivo.",
+        suspended: true,
+      });
+      return;
+    }
   }
 
   const updateData: Partial<typeof ordersTable.$inferInsert> = {};

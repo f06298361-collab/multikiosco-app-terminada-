@@ -170,12 +170,20 @@ function loadInitialNotifications(): NotificationItem[] {
 }
 
 function loadSelectedKioskId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return localStorage.getItem(SELECTED_KIOSK_KEY) || "";
-  } catch {
-    return "";
+  if (typeof window !== "undefined") {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      for (const [key, val] of urlParams.entries()) {
+        if (["kiosk", "kioskid", "kiosk_id"].includes(key.toLowerCase()) && val.trim()) {
+          return val.trim();
+        }
+      }
+      return localStorage.getItem(SELECTED_KIOSK_KEY) || "";
+    } catch {
+      return "";
+    }
   }
+  return "";
 }
 
 const defaultSettings: Settings = {
@@ -347,6 +355,9 @@ async function api<T>(
       try {
         const errBody = await res.json();
         if (errBody && errBody.error) errMsg = errBody.error;
+        if (errBody && (errBody.kioskDeleted || errBody.deleted)) {
+          handleKioskDeleted();
+        }
       } catch {}
     }
     throw new Error(errMsg);
@@ -684,7 +695,7 @@ export function addNotification(
     Notification.permission === "granted"
   ) {
     try {
-      if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+      if ("serviceWorker" in navigator) {
         navigator.serviceWorker.ready
           .then((reg) => {
             reg.showNotification(item.title, {
@@ -696,11 +707,7 @@ export function addNotification(
               vibrate: [200, 100, 200],
             } as any);
           })
-          .catch(() => {
-            new Notification(item.title, { body: item.message, icon: "/favicon.svg" });
-          });
-      } else {
-        new Notification(item.title, { body: item.message, icon: "/favicon.svg" });
+          .catch(() => {});
       }
     } catch {}
   }
@@ -812,8 +819,14 @@ async function refreshOrders() {
         // Cambio de estado relevante únicamente para el cliente que generó el pedido
         const customerIds = getCustomerOrderIds();
         const isTargetCustomerOrder = customerIds.includes(o.id) || (currentLastOrderId && o.id === currentLastOrderId);
+        const matchesCurrentKiosk =
+          !activeKioskId ||
+          !orderKioskId ||
+          orderKioskId === activeKioskId ||
+          orderKioskId === state.currentKiosk.id ||
+          orderKioskId === state.currentKiosk.slug;
 
-        if (!isAdminView && isTargetCustomerOrder && orderKioskId === activeKioskId) {
+        if (!isAdminView && isTargetCustomerOrder && matchesCurrentKiosk) {
           const eventKey = `status_${o.id}_${o.status}`;
           if (!notifiedOrderEvents.has(eventKey)) {
             notifiedOrderEvents.add(eventKey);
@@ -873,8 +886,38 @@ export function updatePwaHead(settings: Settings) {
 
   const slug = settings.slug || settings.kioskId || "";
   const name = settings.shopName || "Tienda Online";
+  const desc = settings.description || `Hacé tu pedido online en ${name}. Catálogo actualizado y envíos a domicilio.`;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
 
-  document.title = name ? `${name} - Tienda Online` : "Tienda Online";
+  document.title = `${name} · Pedidos Online`;
+
+  const setMeta = (attr: string, key: string, content: string) => {
+    let el = document.querySelector(`meta[${attr}="${key}"]`);
+    if (!el) {
+      el = document.createElement("meta");
+      el.setAttribute(attr, key);
+      document.head.appendChild(el);
+    }
+    el.setAttribute("content", content);
+  };
+
+  setMeta("name", "description", desc);
+  setMeta("property", "og:title", `${name} · Pedidos Online`);
+  setMeta("property", "og:description", desc);
+  setMeta("property", "og:type", "website");
+  setMeta("property", "og:site_name", name);
+  setMeta("name", "twitter:card", "summary_large_image");
+  setMeta("name", "twitter:title", `${name} · Pedidos Online`);
+  setMeta("name", "twitter:description", desc);
+
+  if (slug && origin) {
+    setMeta("property", "og:url", `${origin}/?kiosk=${encodeURIComponent(slug)}`);
+    const ogImgUrl = settings.logoUrl
+      ? `${origin}/api/kiosk-og-image?kiosk=${encodeURIComponent(slug)}`
+      : `${origin}/opengraph.jpg`;
+    setMeta("property", "og:image", ogImgUrl);
+    setMeta("name", "twitter:image", ogImgUrl);
+  }
 
   let manifestLink = document.getElementById("app-manifest") as HTMLLinkElement;
   if (!manifestLink) {
@@ -955,6 +998,71 @@ async function verifyAdmin(): Promise<AdminUser | null> {
   return null;
 }
 
+export function handleKioskDeleted(deletedKioskId?: string) {
+  const currentSelected = state.selectedKioskId;
+  const currentId = state.currentKiosk.id;
+  const currentSlug = state.currentKiosk.slug;
+
+  const matches =
+    !deletedKioskId ||
+    deletedKioskId === currentSelected ||
+    deletedKioskId === currentId ||
+    deletedKioskId === currentSlug;
+
+  if (matches) {
+    try {
+      localStorage.removeItem(SELECTED_KIOSK_KEY);
+      if (deletedKioskId) {
+        localStorage.removeItem(`kiosco_cart_${deletedKioskId}`);
+      }
+      if (currentId) {
+        localStorage.removeItem(`kiosco_cart_${currentId}`);
+      }
+    } catch {}
+
+    const admin = getAdminUser();
+    if (
+      admin?.role === "admin" &&
+      (!deletedKioskId ||
+        admin.kioskId === deletedKioskId ||
+        admin.assignedKiosks?.some((k) => k.id === deletedKioskId || k.slug === deletedKioskId))
+    ) {
+      logoutAdmin();
+    }
+
+    if (typeof window !== "undefined" && window.history?.replaceState) {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("kiosk");
+        url.searchParams.delete("kioskid");
+        url.searchParams.delete("kiosk_id");
+        window.history.replaceState(null, "", url.toString());
+      } catch {}
+    }
+
+    setState((s) => ({
+      ...s,
+      selectedKioskId: "",
+      currentKiosk: {
+        id: "",
+        name: "",
+        slug: "",
+        active: true,
+        createdAt: "",
+        updatedAt: "",
+      },
+      settings: defaultSettings,
+      products: [],
+      orders: [],
+      cart: [],
+      urlKioskNotice: {
+        type: "error",
+        message: "Este negocio no existe o fue eliminado por la administración.",
+      },
+    }));
+  }
+}
+
 function selectKiosk(kioskId: string) {
   if (!kioskId) {
     setState((s) => ({
@@ -1019,6 +1127,24 @@ function selectKiosk(kioskId: string) {
   try {
     localStorage.setItem(SELECTED_KIOSK_KEY, kioskId);
   } catch {}
+
+  const targetKiosk =
+    state.publicKiosks.find((k) => k.id === kioskId || k.slug === kioskId) ||
+    adminUser?.assignedKiosks?.find((k) => k.id === kioskId || k.slug === kioskId);
+  const targetSlug = targetKiosk?.slug || kioskId;
+
+  if (typeof window !== "undefined" && window.history?.replaceState) {
+    try {
+      const url = new URL(window.location.href);
+      if (targetSlug) {
+        url.searchParams.set("kiosk", targetSlug);
+        url.searchParams.delete("kioskid");
+        url.searchParams.delete("kiosk_id");
+        window.history.replaceState(null, "", url.toString());
+      }
+    } catch {}
+  }
+
   void refreshProducts();
   void refreshSettings(kioskId);
   void refreshOrders();
@@ -1105,6 +1231,18 @@ export async function bootstrap() {
           try {
             localStorage.setItem(SELECTED_KIOSK_KEY, activeKioskToSelect);
           } catch {}
+          if (typeof window !== "undefined" && window.history?.replaceState) {
+            try {
+              const url = new URL(window.location.href);
+              const cleanSlug = fetchedSettings.slug || fetchedSettings.kioskId;
+              if (cleanSlug) {
+                url.searchParams.set("kiosk", cleanSlug);
+                url.searchParams.delete("kioskid");
+                url.searchParams.delete("kiosk_id");
+                window.history.replaceState(null, "", url.toString());
+              }
+            } catch {}
+          }
         }
       }
     } else {
@@ -1152,6 +1290,16 @@ export async function bootstrap() {
             type: "inactive",
             message: `El negocio "${fetchedSettings.shopName || "seleccionado"}" se encuentra pausado / inactivo actualmente.`,
           };
+        }
+        if (fetchedSettings && typeof window !== "undefined" && window.history?.replaceState) {
+          try {
+            const url = new URL(window.location.href);
+            const cleanSlug = fetchedSettings.slug || fetchedSettings.kioskId;
+            if (cleanSlug && !url.searchParams.has("kiosk")) {
+              url.searchParams.set("kiosk", cleanSlug);
+              window.history.replaceState(null, "", url.toString());
+            }
+          } catch {}
         }
       }
     }
@@ -1272,6 +1420,16 @@ export const store = {
   },
   selectKiosk: (kioskId: string) => {
     selectKiosk(kioskId);
+  },
+  handleKioskDeleted: (kioskId?: string) => {
+    handleKioskDeleted(kioskId);
+  },
+  checkKioskStatus: async () => {
+    const kioskId = state.currentKiosk.id || state.selectedKioskId;
+    if (!kioskId) return null;
+    const settings = await refreshSettings(kioskId);
+    await refreshPublicKiosks();
+    return settings;
   },
   dismissNotice: () => {
     setState((s) => ({ ...s, urlKioskNotice: null }));
@@ -2129,27 +2287,40 @@ export function formatOrderNumber(order: { orderNumber?: number | null; id: stri
 }
 
 export function buildWhatsappUrl(order: Order, settings: Settings, kioskOverride?: Kiosk): string {
+  if (!order) return "";
   const currentKiosk = kioskOverride || (typeof state !== "undefined" ? state.currentKiosk : undefined);
   const shopName = settings?.shopName || currentKiosk?.name || "Tienda Online";
   const whatsappNum = settings?.whatsappNumber || "";
-  const orderNumDisplay = order.orderNumber != null ? `#${order.orderNumber}` : `#${order.id}`;
+  const orderNumDisplay = order.orderNumber != null ? `#${order.orderNumber}` : (order.id ? `#${order.id.slice(-6)}` : "#---");
+
+  let rawItems = (order as any).items;
+  if (typeof rawItems === "string") {
+    try {
+      rawItems = JSON.parse(rawItems);
+    } catch {
+      rawItems = [];
+    }
+  }
+  const items = Array.isArray(rawItems) ? rawItems : [];
+
   const lines = [
     `*🛍️ Nuevo pedido ${orderNumDisplay} - ${shopName}*`,
     ``,
-    `*Cliente:* ${order.customerName}`,
+    `*Cliente:* ${order.customerName || "Cliente"}`,
     `*Modalidad:* ${order.delivery === "retiro" ? "Retiro en local" : "Envío a domicilio"}`,
     order.delivery === "envio" ? `*Dirección:* ${order.address || "(sin dirección)"}` : null,
     ``,
     `*Productos:*`,
-    ...order.items.map(
-      (i) => `• ${i.qty} x ${i.name} - ${formatPrice(i.price * i.qty)}`,
+    ...items.map(
+      (i: any) => `• ${i?.qty || 1} x ${i?.name || "Producto"} - ${formatPrice((i?.price || 0) * (i?.qty || 1))}`,
     ),
     ``,
-    `*Total: ${formatPrice(order.total)}*`,
+    `*Total:* ${formatPrice(order.total || 0)}`,
     `*Pago:* ${order.payment === "mercadopago" ? "Mercado Pago" : "Efectivo"}`,
     ``,
     `Pedido ${orderNumDisplay}`,
-  ].filter(Boolean) as string[];
+  ].filter((l): l is string => l !== null && l !== undefined);
+
   const text = encodeURIComponent(lines.join("\n"));
   const number = whatsappNum.replace(/\D/g, "");
   return number ? `https://wa.me/${number}?text=${text}` : `https://wa.me/?text=${text}`;

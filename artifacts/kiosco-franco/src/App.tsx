@@ -10,7 +10,8 @@
  * - Cliente ve la tienda y hace pedidos
  */
 
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback, Component } from "react";
+import type { ReactNode, ErrorInfo } from "react";
 import {
   ShoppingCart,
   Store,
@@ -73,6 +74,7 @@ import {
   useStore,
   formatPrice,
   buildWhatsappUrl,
+  updatePwaHead,
   type Order,
   type OrderStatus,
   type Product,
@@ -517,6 +519,59 @@ function ToastContainer() {
   );
 }
 
+// ─── Error Boundary Anti-Pantalla Blanca ──────────────────────────────────────
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("AppErrorBoundary capturó un error:", error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-[50vh] p-6 text-center max-w-md mx-auto">
+          <div className="h-14 w-14 rounded-2xl bg-amber-500/15 text-amber-600 flex items-center justify-center mb-3">
+            <RefreshCw className="h-7 w-7" />
+          </div>
+          <h2 className="text-base font-bold text-foreground">Actualizando vista...</h2>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+            Se sincronizó una actualización en segundo plano. Tocá reintentar para continuar viendo tu pedido o catálogo sin interrupciones.
+          </p>
+          <button
+            onClick={this.handleReset}
+            className="mt-4 px-5 py-2.5 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 active:scale-95 transition"
+          >
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── App raíz ────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -640,94 +695,96 @@ export default function App() {
         {screen !== "superadmin" && (screen !== "admin" || adminAuthed) && <Header currentScreen={screen} />}
 
         <main className="flex-1 overflow-y-auto pb-24">
-          {screen === "products" && (
-            <ProductsScreen onGoToCart={() => setScreen("cart")} />
-          )}
+          <AppErrorBoundary key={screen}>
+            {screen === "products" && (
+              <ProductsScreen onGoToCart={() => setScreen("cart")} />
+            )}
 
-          {screen === "cart" && (
-            <CartScreen
-              onBack={() => setScreen("products")}
-              onCheckout={() => setScreen("checkout")}
-            />
-          )}
-
-          {screen === "checkout" && (
-            <CheckoutScreen
-              onBack={() => setScreen("cart")}
-              onConfirmed={handleConfirmed}
-            />
-          )}
-
-          {screen === "payment" && lastOrder && (
-            <MercadoPagoPaymentScreen
-              order={lastOrder}
-              onDone={handlePaymentDone}
-            />
-          )}
-
-          {screen === "confirmation" && lastOrder && (
-            <ConfirmationScreen
-              order={lastOrder}
-              onDone={() => setScreen("products")}
-            />
-          )}
-
-          {screen === "admin" && (
-            adminAuthed
-              ? <AdminPanel onLogout={handleLogout} />
-              : <AdminLogin
-                  onAuth={handleAuthSuccess}
-                  title="Acceso al panel"
-                  subtitle="Ingresá las credenciales de administración"
-                />
-          )}
-
-          {screen === "superadmin" && (
-            (adminAuthed && store.getAdminRole() === "superadmin") ? (
-              <SuperAdminPanel
-                onLogout={handleLogout}
-                onGoToBusiness={() => {
-                  setScreen("admin");
-                }}
+            {screen === "cart" && (
+              <CartScreen
+                onBack={() => setScreen("products")}
+                onCheckout={() => setScreen("checkout")}
               />
-            ) : (
-              <div className="p-4 flex flex-col items-center">
-                <div className="w-full my-3 rounded-2xl bg-amber-50 border border-amber-200/80 p-4 text-xs text-amber-900 shadow-xs flex items-start gap-3">
-                  <Lock className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold text-sm text-amber-950">Acceso a Administración Central</p>
-                    <p className="mt-1 text-amber-800 leading-relaxed">
-                      Inicie sesión con su usuario de <strong>SuperAdmin</strong> para acceder a las herramientas administrativas globales de la plataforma.
-                    </p>
+            )}
+
+            {screen === "checkout" && (
+              <CheckoutScreen
+                onBack={() => setScreen("cart")}
+                onConfirmed={handleConfirmed}
+              />
+            )}
+
+            {screen === "payment" && lastOrder && (
+              <MercadoPagoPaymentScreen
+                order={lastOrder}
+                onDone={handlePaymentDone}
+              />
+            )}
+
+            {screen === "confirmation" && lastOrder && (
+              <ConfirmationScreen
+                order={lastOrder}
+                onDone={() => setScreen("products")}
+              />
+            )}
+
+            {screen === "admin" && (
+              adminAuthed
+                ? <AdminPanel onLogout={handleLogout} />
+                : <AdminLogin
+                    onAuth={handleAuthSuccess}
+                    title="Acceso al panel"
+                    subtitle="Ingresá las credenciales de administración"
+                  />
+            )}
+
+            {screen === "superadmin" && (
+              (adminAuthed && store.getAdminRole() === "superadmin") ? (
+                <SuperAdminPanel
+                  onLogout={handleLogout}
+                  onGoToBusiness={() => {
+                    setScreen("admin");
+                  }}
+                />
+              ) : (
+                <div className="p-4 flex flex-col items-center">
+                  <div className="w-full my-3 rounded-2xl bg-amber-50 border border-amber-200/80 p-4 text-xs text-amber-900 shadow-xs flex items-start gap-3">
+                    <Lock className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-sm text-amber-950">Acceso a Administración Central</p>
+                      <p className="mt-1 text-amber-800 leading-relaxed">
+                        Inicie sesión con su usuario de <strong>SuperAdmin</strong> para acceder a las herramientas administrativas globales de la plataforma.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="w-full">
+                    <AdminLogin
+                      onAuth={handleAuthSuccess}
+                      title="Acceso a Plataforma"
+                      subtitle="Credenciales de SuperAdmin"
+                    />
                   </div>
                 </div>
-                <div className="w-full">
-                  <AdminLogin
-                    onAuth={handleAuthSuccess}
-                    title="Acceso a Plataforma"
-                    subtitle="Credenciales de SuperAdmin"
-                  />
-                </div>
-              </div>
-            )
-          )}
+              )
+            )}
 
-          {screen === "accept-invitation" && (
-            <AcceptInvitationScreen
-              token={invitationToken || ""}
-              onSuccess={() => {
-                setAdminAuthed(true);
-                const r = store.getAdminRole() || "admin";
-                setRole(r);
-                setInvitationToken(null);
-                setScreen(r === "superadmin" ? "superadmin" : "admin");
-              }}
-              onCancel={() => {
-                setInvitationToken(null);
-                setScreen("products");
-              }}
-            />
-          )}
+            {screen === "accept-invitation" && (
+              <AcceptInvitationScreen
+                token={invitationToken || ""}
+                onSuccess={() => {
+                  setAdminAuthed(true);
+                  const r = store.getAdminRole() || "admin";
+                  setRole(r);
+                  setInvitationToken(null);
+                  setScreen(r === "superadmin" ? "superadmin" : "admin");
+                }}
+                onCancel={() => {
+                  setInvitationToken(null);
+                  setScreen("products");
+                }}
+              />
+            )}
+          </AppErrorBoundary>
         </main>
 
         <BottomNav
@@ -900,20 +957,8 @@ function Header({ currentScreen }: { currentScreen?: Screen }) {
 
   // Actualización dinámica de título y metadatos Open Graph para compartir por WhatsApp / redes
   useEffect(() => {
-    const shopName = settings.shopName || currentKiosk.name || "Tienda Online";
-    document.title = `${shopName} — Tienda Online`;
-
-    const metaOgTitle = document.querySelector('meta[property="og:title"]');
-    if (metaOgTitle) metaOgTitle.setAttribute("content", `${shopName} — Tienda Online`);
-
-    const metaOgDesc = document.querySelector('meta[property="og:description"]');
-    if (metaOgDesc) metaOgDesc.setAttribute("content", settings.description || `Hacé tu pedido online en ${shopName}`);
-
-    if (settings.logoUrl) {
-      const metaOgImg = document.querySelector('meta[property="og:image"]');
-      if (metaOgImg) metaOgImg.setAttribute("content", settings.logoUrl);
-    }
-  }, [settings.shopName, settings.description, settings.logoUrl, currentKiosk.name]);
+    updatePwaHead(settings);
+  }, [settings, currentKiosk]);
 
   const handleSelectKioskClick = (targetKiosk: Kiosk) => {
     if (targetKiosk.id === selectedKioskId) {
@@ -1252,6 +1297,31 @@ function ProductsScreen({ onGoToCart }: { onGoToCart: () => void }) {
       ? WELCOME_PRESETS[settings.welcomeMsgType] || settings.welcomeMessage
       : settings.welcomeMessage;
 
+  if (!selectedKioskId && urlKioskNotice?.type === "error") {
+    return (
+      <div className="mx-auto max-w-md p-6 my-16 text-center bg-card rounded-3xl border border-border shadow-xs flex flex-col items-center">
+        <div className="h-16 w-16 rounded-3xl bg-amber-500/10 text-amber-600 flex items-center justify-center mb-4">
+          <Store className="h-8 w-8" />
+        </div>
+        <h2 className="text-xl font-bold text-foreground">Negocio no disponible</h2>
+        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+          {urlKioskNotice.message || "El negocio al que intentás acceder no existe o fue dado de baja por la administración."}
+        </p>
+        {publicKiosks.length > 0 && (
+          <button
+            onClick={() => {
+              store.dismissNotice();
+              store.selectKiosk(publicKiosks[0].id);
+            }}
+            className="mt-6 px-5 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition active:scale-95 shadow-xs"
+          >
+            Explorar {publicKiosks[0].name || "tienda disponible"}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="pb-24">
       {/* Banner de Kiosco Inactivo / Pausado */}
@@ -1496,9 +1566,10 @@ function ProductCard({ product }: { product: Product }) {
     (s) => s.cart.find((i) => i.productId === product.id)?.qty ?? 0,
   );
   const settings = useStore((s) => s.settings);
+  const currentKiosk = useStore((s) => s.currentKiosk);
   const [viewerOpen, setViewerOpen] = useState(false);
   const isAvailable = product.available !== false;
-  const isStoreActive = settings.active !== false;
+  const isStoreActive = settings.active !== false && currentKiosk.active !== false;
 
   const BADGE_MAP: Record<string, { label: string; bg: string }> = {
     oferta: { label: "🔥 Oferta", bg: "bg-rose-600 text-white" },
@@ -1580,9 +1651,9 @@ function ProductCard({ product }: { product: Product }) {
             {!isStoreActive ? (
               <button
                 disabled
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-muted/80 py-2 text-xs font-medium text-muted-foreground/80 cursor-not-allowed border border-border/40"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500/10 text-amber-900 py-2 text-xs font-semibold cursor-not-allowed border border-amber-500/20"
               >
-                No disponible
+                Negocio en pausa
               </button>
             ) : !isAvailable ? (
               <button
@@ -2106,6 +2177,16 @@ function ConfirmationScreen({
   const settings = useStore((s) => s.settings);
   const url = buildWhatsappUrl(order, settings);
 
+  let rawItems = (order as any)?.items;
+  if (typeof rawItems === "string") {
+    try {
+      rawItems = JSON.parse(rawItems);
+    } catch {
+      rawItems = [];
+    }
+  }
+  const items: Array<{ productId: string; name: string; price: number; qty: number }> = Array.isArray(rawItems) ? rawItems : [];
+
   // Para pagos en efectivo, abrir WhatsApp automáticamente
   useEffect(() => {
     if (order.payment === "mercadopago") return;
@@ -2114,14 +2195,16 @@ function ConfirmationScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const orderNumDisplay = order.orderNumber != null ? `#${order.orderNumber}` : (order.id ? `#${order.id.slice(-6)}` : "");
+
   return (
     <div className="mx-auto w-full max-w-xl flex flex-col p-4 gap-4">
-      {/* Éxito */}
-      <div className="flex flex-col items-center gap-2.5 py-5">
+      {/* Éxito / Encabezado */}
+      <div className="flex flex-col items-center gap-2.5 py-4">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
           <Check className="h-9 w-9 text-emerald-600" strokeWidth={2.5} />
         </div>
-        <h2 className="text-xl font-bold">¡Pedido {order.orderNumber != null ? `#${order.orderNumber} ` : ""}confirmado!</h2>
+        <h2 className="text-xl font-bold">¡Pedido {orderNumDisplay} confirmado!</h2>
         <p className="text-center text-sm text-muted-foreground leading-snug">
           {order.payment === "mercadopago"
             ? "Tu pedido fue registrado. Recordá enviar el comprobante de pago."
@@ -2129,14 +2212,83 @@ function ConfirmationScreen({
         </p>
       </div>
 
+      {/* Barra de progreso de los 4 estados en vivo */}
+      <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-xs">
+        <div className="flex items-center justify-between mb-3.5">
+          <span className="text-xs font-bold text-foreground">Estado de tu pedido</span>
+          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_COLOR[order.status] || "bg-primary/10 text-primary"}`}>
+            {STATUS_LABEL[order.status] || order.status}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-4 gap-1 sm:gap-2">
+          {[
+            { id: "nuevo", label: "Recibido", num: 1 },
+            { id: "preparacion", label: "Preparando", num: 2 },
+            { id: "listo", label: order.delivery === "envio" ? "En camino" : "Listo", num: 3 },
+            { id: "entregado", label: "Entregado", num: 4 },
+          ].map((st, idx) => {
+            const statusLevels = ["nuevo", "preparacion", "listo", "entregado"];
+            const currentIdx = statusLevels.indexOf(order.status);
+            const isDone = currentIdx >= idx;
+            const isCurrent = order.status === st.id;
+
+            return (
+              <div key={st.id} className="flex flex-col items-center text-center">
+                <div
+                  className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                    isCurrent
+                      ? "bg-emerald-600 text-white ring-4 ring-emerald-100 scale-105"
+                      : isDone
+                      ? "bg-emerald-500 text-white"
+                      : "bg-muted text-muted-foreground/60"
+                  }`}
+                >
+                  {isDone && !isCurrent ? "✓" : st.num}
+                </div>
+                <span
+                  className={`text-[10px] sm:text-[11px] mt-1.5 font-medium leading-tight ${
+                    isCurrent
+                      ? "font-bold text-emerald-700"
+                      : isDone
+                      ? "text-foreground"
+                      : "text-muted-foreground/70"
+                  }`}
+                >
+                  {st.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {order.status === "listo" && (
+          <div className="mt-3.5 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
+            <span className="text-base">🎉</span>
+            <span className="font-semibold">
+              {order.delivery === "envio"
+                ? "¡Tu pedido está en camino a tu domicilio!"
+                : "¡Tu pedido ya está listo para retirar en el local!"}
+            </span>
+          </div>
+        )}
+
+        {order.status === "entregado" && (
+          <div className="mt-3.5 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
+            <span className="text-base">✅</span>
+            <span className="font-semibold">Pedido entregado con éxito. ¡Muchas gracias por tu compra!</span>
+          </div>
+        )}
+      </div>
+
       {/* Detalle del pedido */}
       <div className="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
         <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
           <span className="text-xs font-semibold text-foreground">
-            Pedido #{order.orderNumber != null ? order.orderNumber : order.id.slice(-6)}
+            Pedido {orderNumDisplay}
           </span>
-          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_COLOR[order.status]}`}>
-            {STATUS_LABEL[order.status]}
+          <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_COLOR[order.status] || "bg-primary/10 text-primary"}`}>
+            {STATUS_LABEL[order.status] || order.status}
           </span>
         </div>
         <div className="flex flex-col gap-1.5 px-4 py-3 text-sm">
@@ -2150,8 +2302,8 @@ function ConfirmationScreen({
         <div className="border-t border-border/60 px-4 py-3">
           <p className="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Productos</p>
           <div className="flex flex-col gap-1 text-sm">
-            {order.items.map((i) => (
-              <div key={i.productId} className="flex justify-between">
+            {items.map((i, idx) => (
+              <div key={i.productId || idx} className="flex justify-between">
                 <span className="text-muted-foreground">{i.qty} × {i.name}</span>
                 <span className="font-medium">{formatPrice(i.price * i.qty)}</span>
               </div>
@@ -2926,6 +3078,53 @@ function AdminPanel({ onLogout }: { onLogout?: () => void } = {}) {
     { id: "design" as const, label: "Estilo", icon: Palette },
     { id: "settings" as const, label: "Ajustes", icon: Settings2 },
   ];
+
+  const isSuspended = adminUser?.role === "admin" && (currentKiosk.active === false || settings.active === false);
+
+  if (isSuspended) {
+    return (
+      <div className="mx-auto max-w-lg p-6 my-10 text-center bg-card rounded-3xl border border-amber-500/30 shadow-sm flex flex-col items-center">
+        <div className="h-16 w-16 rounded-3xl bg-amber-500/10 text-amber-600 flex items-center justify-center mb-4">
+          <AlertTriangle className="h-8 w-8" />
+        </div>
+        <h2 className="text-xl font-bold text-foreground">Negocio Pausado / Inactivo</h2>
+        <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
+          Tu negocio ha sido pausado por la administración central. Mientras la cuenta permanezca inactiva, la recepción de pedidos, gestión de catálogo y cambios de ajustes están deshabilitados.
+        </p>
+        <div className="mt-6 flex flex-col sm:flex-row gap-3 w-full justify-center">
+          <button
+            onClick={async () => {
+              const res = await store.checkKioskStatus();
+              if (res && res.active !== false) {
+                store.addToast({
+                  title: "¡Negocio activo!",
+                  message: "Tu negocio se encuentra habilitado y listo para operar.",
+                  type: "success",
+                });
+              } else {
+                store.addToast({
+                  title: "Aún pausado",
+                  message: "Tu negocio continúa inactivo. Contactá al SuperAdministrador para reactivarlo.",
+                  type: "info",
+                });
+              }
+            }}
+            className="px-5 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition active:scale-95 shadow-xs"
+          >
+            Verificar estado de mi cuenta
+          </button>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="px-5 py-3 rounded-2xl border border-border text-foreground font-medium text-sm hover:bg-muted transition"
+            >
+              Cerrar sesión
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
