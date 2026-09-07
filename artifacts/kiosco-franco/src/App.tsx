@@ -45,6 +45,7 @@ import {
   Megaphone,
   BarChart3,
   Palette,
+  Pipette,
   Sparkles,
   Eye,
   MapPin,
@@ -68,6 +69,7 @@ import {
   Volume2,
   Calendar,
   DollarSign,
+  AlertTriangle,
 } from "lucide-react";
 import {
   store,
@@ -84,6 +86,12 @@ import {
   type AdminUser,
 } from "./store";
 import { AcceptInvitationScreen } from "./AcceptInvitationScreen";
+import {
+  getActiveCheckoutSession,
+  saveActiveCheckoutSession,
+  clearActiveCheckoutSession,
+} from "./checkoutSession";
+import { applyThemeColor, THEME_COLOR_PRESETS } from "./theme";
 
 // ─── Tipos y constantes ──────────────────────────────────────────────────────
 
@@ -548,6 +556,13 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
     this.setState({ hasError: false, error: null });
   };
 
+  handleGoHome = () => {
+    this.setState({ hasError: false, error: null });
+    if (typeof window !== "undefined") {
+      window.location.href = window.location.pathname;
+    }
+  };
+
   render() {
     if (this.state.hasError) {
       return (
@@ -555,16 +570,24 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
           <div className="h-14 w-14 rounded-2xl bg-amber-500/15 text-amber-600 flex items-center justify-center mb-3">
             <RefreshCw className="h-7 w-7" />
           </div>
-          <h2 className="text-base font-bold text-foreground">Actualizando vista...</h2>
+          <h2 className="text-base font-bold text-foreground">Ocurrió un problema temporal</h2>
           <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-            Se sincronizó una actualización en segundo plano. Tocá reintentar para continuar viendo tu pedido o catálogo sin interrupciones.
+            Se produjo una interrupción visual en la vista. Podés reintentar o volver al inicio para continuar navegando normalmente.
           </p>
-          <button
-            onClick={this.handleReset}
-            className="mt-4 px-5 py-2.5 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 active:scale-95 transition"
-          >
-            Reintentar
-          </button>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={this.handleReset}
+              className="px-5 py-2.5 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 active:scale-95 transition"
+            >
+              Reintentar
+            </button>
+            <button
+              onClick={this.handleGoHome}
+              className="px-5 py-2.5 bg-muted text-foreground text-xs font-semibold rounded-xl hover:bg-muted/80 active:scale-95 transition"
+            >
+              Ir al inicio
+            </button>
+          </div>
         </div>
       );
     }
@@ -596,9 +619,19 @@ export default function App() {
       if (r === "superadmin") return "superadmin";
       if (r === "admin") return "admin";
     }
+    const session = getActiveCheckoutSession();
+    if (session?.screen) {
+      return session.screen;
+    }
     return "products";
   });
-  const [lastOrder, setLastOrder] = useState<Order | null>(null);
+  const [lastOrder, setLastOrder] = useState<Order | null>(() => {
+    const session = getActiveCheckoutSession();
+    if (session?.order) {
+      return session.order;
+    }
+    return null;
+  });
   const [adminAuthed, setAdminAuthed] = useState(() => store.hasAdminAuth());
   const [role, setRole] = useState<Role>(() => store.getAdminRole() || "cliente");
 
@@ -606,6 +639,12 @@ export default function App() {
     s.cart.reduce((sum, i) => sum + i.qty, 0),
   );
   const orders = useStore((s) => s.orders);
+  const currentThemeColor = useStore((s) => s.settings?.themeColor);
+
+  // Sincronización en tiempo real del color de la marca del negocio
+  useEffect(() => {
+    applyThemeColor(currentThemeColor);
+  }, [currentThemeColor]);
 
   // Sincronización continua y persistente del último pedido realizado por el cliente
   useEffect(() => {
@@ -624,6 +663,71 @@ export default function App() {
       }
     }
   }, [orders, lastOrder]);
+
+  // Restaurar automáticamente sesión de compra activa (al volver de Mercado Pago o recarga de pestaña)
+  useEffect(() => {
+    const session = getActiveCheckoutSession();
+    if (session) {
+      if (session.kioskId && session.kioskId !== store.getState().selectedKioskId) {
+        store.selectKiosk(session.kioskId);
+      }
+      if (session.cart && session.cart.length > 0 && store.getState().cart.length === 0) {
+        store.restoreCart(session.cart);
+      }
+      if (session.order && !lastOrder) {
+        setLastOrder(session.order);
+      }
+    }
+  }, []);
+
+  // Guardar estado persistente antes de salir o suspender la aplicación (ej. hacia Mercado Pago)
+  useEffect(() => {
+    const persistCurrentSession = () => {
+      if (screen === "checkout" || screen === "payment" || screen === "cart") {
+        saveActiveCheckoutSession({
+          screen,
+          kioskId: store.getState().selectedKioskId,
+          cart: store.getState().cart,
+          order: lastOrder || undefined,
+          orderId: lastOrder?.id,
+        });
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        persistCurrentSession();
+      } else if (document.visibilityState === "visible") {
+        // Al regresar del background / app switcher
+        const session = getActiveCheckoutSession();
+        if (session) {
+          if (session.kioskId && session.kioskId !== store.getState().selectedKioskId) {
+            store.selectKiosk(session.kioskId);
+          }
+          if (session.cart && session.cart.length > 0 && store.getState().cart.length === 0) {
+            store.restoreCart(session.cart);
+          }
+          if (session.order && !lastOrder) {
+            setLastOrder(session.order);
+          }
+          if (session.screen && session.screen !== screen) {
+            setScreen(session.screen);
+          }
+        }
+        store.refreshOrders();
+      }
+    };
+
+    window.addEventListener("pagehide", persistCurrentSession);
+    window.addEventListener("beforeunload", persistCurrentSession);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pagehide", persistCurrentSession);
+      window.removeEventListener("beforeunload", persistCurrentSession);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [screen, lastOrder]);
 
   useEffect(() => {
     if (adminAuthed) {
@@ -670,13 +774,27 @@ export default function App() {
   const handleConfirmed = (order: Order) => {
     setLastOrder(order);
     if (order.payment === "mercadopago") {
+      saveActiveCheckoutSession({
+        screen: "payment",
+        order,
+        orderId: order.id,
+        kioskId: store.getState().selectedKioskId,
+        customerName: order.customerName,
+        address: order.address,
+        delivery: order.delivery as any,
+        payment: "mercadopago",
+        cart: store.getState().cart,
+      });
       setScreen("payment");
     } else {
+      clearActiveCheckoutSession();
       setScreen("confirmation");
     }
   };
 
   const handlePaymentDone = () => {
+    store.clearCart();
+    clearActiveCheckoutSession();
     setScreen("confirmation");
   };
 
@@ -702,29 +820,57 @@ export default function App() {
 
             {screen === "cart" && (
               <CartScreen
-                onBack={() => setScreen("products")}
-                onCheckout={() => setScreen("checkout")}
+                onBack={() => {
+                  saveActiveCheckoutSession({ screen: "products" });
+                  setScreen("products");
+                }}
+                onCheckout={() => {
+                  saveActiveCheckoutSession({
+                    screen: "checkout",
+                    cart: store.getState().cart,
+                    kioskId: store.getState().selectedKioskId,
+                  });
+                  setScreen("checkout");
+                }}
               />
             )}
 
             {screen === "checkout" && (
               <CheckoutScreen
-                onBack={() => setScreen("cart")}
+                onBack={() => {
+                  saveActiveCheckoutSession({ screen: "cart" });
+                  setScreen("cart");
+                }}
                 onConfirmed={handleConfirmed}
               />
             )}
 
-            {screen === "payment" && lastOrder && (
-              <MercadoPagoPaymentScreen
-                order={lastOrder}
-                onDone={handlePaymentDone}
-              />
+            {screen === "payment" && (
+              lastOrder ? (
+                <MercadoPagoPaymentScreen
+                  order={lastOrder}
+                  onBack={() => {
+                    saveActiveCheckoutSession({ screen: "checkout" });
+                    setScreen("checkout");
+                  }}
+                  onDone={handlePaymentDone}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-12 text-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent mb-3" />
+                  <p className="text-xs text-muted-foreground">Recuperando tu pago...</p>
+                </div>
+              )
             )}
 
             {screen === "confirmation" && lastOrder && (
               <ConfirmationScreen
                 order={lastOrder}
-                onDone={() => setScreen("products")}
+                onDone={() => {
+                  clearActiveCheckoutSession();
+                  store.clearCart();
+                  setScreen("products");
+                }}
               />
             )}
 
@@ -1237,6 +1383,9 @@ function ProductsScreen({ onGoToCart }: { onGoToCart: () => void }) {
   const products = useStore((s) => s.products);
   const cart = useStore((s) => s.cart);
   const settings = useStore((s) => s.settings);
+  const selectedKioskId = useStore((s) => s.selectedKioskId);
+  const urlKioskNotice = useStore((s) => s.urlKioskNotice);
+  const publicKiosks = useStore((s) => s.publicKiosks);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCat, setActiveCat] = useState("Todos");
@@ -1735,7 +1884,12 @@ function CartScreen({
     <div className="flex flex-col">
       <ScreenHeader title="Tu carrito" onBack={onBack} />
 
-      {items.length === 0 ? (
+      {cart.length > 0 && products.length === 0 ? (
+        <div className="flex flex-col items-center justify-center p-12 text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent mb-3" />
+          <p className="text-xs text-muted-foreground">Cargando tu carrito...</p>
+        </div>
+      ) : items.length === 0 ? (
         <EmptyState
           icon={<ShoppingCart className="h-10 w-10" />}
           title="Carrito vacío"
@@ -1843,12 +1997,26 @@ function CheckoutScreen({
   const products = useStore((s) => s.products);
   const settings = useStore((s) => s.settings);
 
-  const [name, setName] = useState("");
-  const [address, setAddress] = useState("");
-  const [delivery, setDelivery] = useState<"retiro" | "envio">("retiro");
-  const [payment, setPayment] = useState<"efectivo" | "mercadopago">("efectivo");
+  const activeSession = getActiveCheckoutSession();
+  const [name, setName] = useState(() => activeSession?.customerName || "");
+  const [address, setAddress] = useState(() => activeSession?.address || "");
+  const [delivery, setDelivery] = useState<"retiro" | "envio">(() => activeSession?.delivery || "retiro");
+  const [payment, setPayment] = useState<"efectivo" | "mercadopago">(() => activeSession?.payment || "efectivo");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Sincronizar borrador del checkout continuamente
+  useEffect(() => {
+    saveActiveCheckoutSession({
+      screen: "checkout",
+      kioskId: store.getState().selectedKioskId,
+      customerName: name,
+      address,
+      delivery,
+      payment,
+      cart,
+    });
+  }, [name, address, delivery, payment, cart]);
 
   const items = useMemo(
     () =>
@@ -1891,6 +2059,18 @@ function CheckoutScreen({
       setIsSubmitting(false);
     }
   };
+
+  if (cart.length > 0 && products.length === 0) {
+    return (
+      <div>
+        <ScreenHeader title="Confirmar pedido" onBack={onBack} />
+        <div className="flex flex-col items-center justify-center p-12 text-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent mb-3" />
+          <p className="text-xs text-muted-foreground">Cargando tu pedido...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -2045,33 +2225,91 @@ function CheckoutScreen({
 
 function MercadoPagoPaymentScreen({
   order,
+  onBack,
   onDone,
 }: {
   order: Order;
+  onBack?: () => void;
   onDone: () => void;
 }) {
   const settings = useStore((s) => s.settings);
   const [copied, setCopied] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
 
+  // Mantener guardado activamente el estado del pedido y pantalla de pago
+  useEffect(() => {
+    saveActiveCheckoutSession({
+      screen: "payment",
+      order,
+      orderId: order.id,
+      kioskId: store.getState().selectedKioskId,
+      customerName: order.customerName,
+      address: order.address,
+      delivery: order.delivery as any,
+      payment: "mercadopago",
+      cart: store.getState().cart,
+    });
+  }, [order]);
+
   const copyAlias = () => {
+    saveActiveCheckoutSession({
+      screen: "payment",
+      order,
+      orderId: order.id,
+      kioskId: store.getState().selectedKioskId,
+      customerName: order.customerName,
+      address: order.address,
+      delivery: order.delivery as any,
+      payment: "mercadopago",
+      cart: store.getState().cart,
+    });
     navigator.clipboard?.writeText(settings.mercadoPagoAlias).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     });
   };
 
+  const handleOpenMercadoPago = () => {
+    saveActiveCheckoutSession({
+      screen: "payment",
+      order,
+      orderId: order.id,
+      kioskId: store.getState().selectedKioskId,
+      customerName: order.customerName,
+      address: order.address,
+      delivery: order.delivery as any,
+      payment: "mercadopago",
+      cart: store.getState().cart,
+    });
+    const mpWebUrl = "https://www.mercadopago.com.ar";
+    window.open(mpWebUrl, "_blank");
+  };
+
   const url = buildWhatsappUrl(order, settings);
 
   const handleWhatsApp = () => {
+    store.clearCart();
+    clearActiveCheckoutSession();
     window.open(url, "_blank");
     onDone();
   };
 
   return (
     <div className="flex flex-col p-4 gap-4">
+      {/* Botón Volver (si está disponible) */}
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="self-start flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition -mb-1 px-1 py-1"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Volver al pedido
+        </button>
+      )}
+
       {/* Encabezado */}
-      <div className="flex flex-col items-center gap-2 pt-3 pb-1">
+      <div className="flex flex-col items-center gap-2 pt-1 pb-1">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-100">
           <CreditCard className="h-7 w-7 text-sky-600" />
         </div>
@@ -2145,6 +2383,16 @@ function MercadoPagoPaymentScreen({
           <span className="font-bold text-foreground">{formatPrice(order.total)}</span>
         </div>
       </div>
+
+      {/* Botón rápido para abrir Mercado Pago */}
+      <button
+        type="button"
+        onClick={handleOpenMercadoPago}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-sky-600/70 bg-sky-50 dark:bg-sky-950/30 py-3.5 text-sm font-semibold text-sky-700 dark:text-sky-300 shadow-xs transition active:scale-[0.98] hover:bg-sky-100 dark:hover:bg-sky-900/40"
+      >
+        <ExternalLink className="h-4 w-4" />
+        Abrir app de Mercado Pago
+      </button>
 
       <button
         onClick={handleWhatsApp}
@@ -3352,7 +3600,7 @@ function EditOrderModal({
   const [customerName, setCustomerName] = useState(order.customerName || "");
   const [delivery, setDelivery] = useState<"retiro" | "envio">(order.delivery || "retiro");
   const [address, setAddress] = useState(order.address || "");
-  const [payment, setPayment] = useState<PaymentMethod>(order.payment || "efectivo");
+  const [payment, setPayment] = useState<Order["payment"]>(order.payment || "efectivo");
   const [status, setStatus] = useState<OrderStatus>(order.status || "nuevo");
   const [items, setItems] = useState<{ productId: string; name: string; price: number; qty: number }[]>(
     () => (order.items || []).map((i) => ({ ...i })),
@@ -3734,7 +3982,7 @@ function EditOrderModal({
                 >
                   <option value="">Seleccionar un producto para agregar...</option>
                   {products
-                    .filter((p) => p.active !== false)
+                    .filter((p) => p.available !== false)
                     .map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} — {formatPrice(p.price)}
@@ -5597,32 +5845,67 @@ function AdminDesign() {
   const settings = useStore((s) => s.settings);
   const [themeStyle, setThemeStyle] = useState(settings.themeStyle || "modern");
   const [themeColor, setThemeColor] = useState(settings.themeColor || "sky");
+  const [customHex, setCustomHex] = useState(
+    settings.themeColor && settings.themeColor.startsWith("#") ? settings.themeColor : "#0284c7"
+  );
   const [bannerUrl, setBannerUrl] = useState(settings.bannerUrl || "");
   const [welcomeMsgType, setWelcomeMsgType] = useState(settings.welcomeMsgType || "default");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const saveDesign = async () => {
-    setSaving(true);
-    await store.updateSettings({
-      themeStyle,
-      themeColor,
-      bannerUrl,
-      welcomeMsgType,
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  // Sincronizar estado cuando se cargan las configuraciones del negocio seleccionado
+  useEffect(() => {
+    if (settings) {
+      if (settings.themeStyle) setThemeStyle(settings.themeStyle);
+      if (settings.themeColor) {
+        setThemeColor(settings.themeColor);
+        if (settings.themeColor.startsWith("#")) {
+          setCustomHex(settings.themeColor);
+        }
+      }
+      if (settings.bannerUrl !== undefined) setBannerUrl(settings.bannerUrl || "");
+      if (settings.welcomeMsgType !== undefined) setWelcomeMsgType(settings.welcomeMsgType || "default");
+    }
+  }, [settings.themeColor, settings.themeStyle, settings.bannerUrl, settings.welcomeMsgType]);
+
+  // Si el usuario sale de la pestaña sin guardar, restaurar el tema efectivamente guardado
+  useEffect(() => {
+    return () => {
+      const currentSavedColor = store.getState().settings?.themeColor || "sky";
+      applyThemeColor(currentSavedColor);
+    };
+  }, []);
+
+  const handleSelectColor = (color: string) => {
+    setThemeColor(color);
+    applyThemeColor(color); // Cambio inmediato en vivo en toda la interfaz
   };
 
-  const THEME_COLORS = [
-    { id: "sky", name: "Azul Creador", bg: "bg-sky-500" },
-    { id: "emerald", name: "Esmeralda Fresco", bg: "bg-emerald-500" },
-    { id: "violet", name: "Púrpura Elegante", bg: "bg-purple-600" },
-    { id: "amber", name: "Cálido Naranja", bg: "bg-amber-500" },
-    { id: "rose", name: "Rosa Vibrante", bg: "bg-rose-500" },
-    { id: "slate", name: "Gris Clásico", bg: "bg-slate-700" },
-  ];
+  const handleCustomColorChange = (hex: string) => {
+    setCustomHex(hex);
+    setThemeColor(hex);
+    applyThemeColor(hex); // Cambio inmediato en vivo en toda la interfaz
+  };
+
+  const saveDesign = async () => {
+    setSaving(true);
+    try {
+      const updated = await store.updateSettings({
+        themeStyle,
+        themeColor,
+        bannerUrl,
+        welcomeMsgType,
+      });
+      const finalColor = updated?.themeColor || themeColor;
+      applyThemeColor(finalColor);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error("Error saving design:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="p-4 space-y-4">
@@ -5657,24 +5940,70 @@ function AdminDesign() {
           </div>
         </Field>
 
-        {/* Paletas de color predefinidas */}
-        <Field label="Paleta de color principal">
-          <div className="grid grid-cols-2 gap-2 mt-1">
-            {THEME_COLORS.map((tc) => (
-              <button
-                key={tc.id}
-                type="button"
-                onClick={() => setThemeColor(tc.id as "sky" | "emerald" | "violet" | "amber" | "rose" | "slate")}
-                className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition ${
-                  themeColor === tc.id
-                    ? "border-primary bg-primary/10 font-bold"
-                    : "border-border bg-background"
-                }`}
-              >
-                <span className={`h-4 w-4 rounded-full ${tc.bg}`} />
-                <span className="text-xs truncate">{tc.name}</span>
-              </button>
-            ))}
+        {/* Paletas de color predefinidas y personalizadas */}
+        <Field label="Color principal de la marca">
+          <p className="text-[11px] text-muted-foreground mb-2">
+            Elegí un color predeterminado o personalizá el tono exacto de tu negocio. El cambio se refleja de inmediato en toda la aplicación.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {THEME_COLOR_PRESETS.map((tc) => {
+              const isSelected = themeColor.toLowerCase() === tc.id.toLowerCase();
+              return (
+                <button
+                  key={tc.id}
+                  type="button"
+                  onClick={() => handleSelectColor(tc.id)}
+                  className={`flex items-center gap-2 p-2.5 rounded-xl border text-left transition ${
+                    isSelected
+                      ? "border-primary bg-primary/10 font-bold shadow-xs ring-2 ring-primary/30"
+                      : "border-border bg-background hover:border-border/80"
+                  }`}
+                >
+                  <span className={`h-4 w-4 shrink-0 rounded-full ${tc.bg}`} style={{ backgroundColor: tc.hex }} />
+                  <span className="text-xs truncate">{tc.name}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Selector de color personalizado */}
+          <div className="mt-3 pt-3 border-t border-border/60">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Pipette className="h-3.5 w-3.5 text-primary" />
+                Color personalizado (código HEX)
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex items-center">
+                  <input
+                    type="color"
+                    value={customHex.startsWith("#") ? customHex : "#0284c7"}
+                    onChange={(e) => handleCustomColorChange(e.target.value)}
+                    className="h-8 w-8 cursor-pointer rounded-lg border border-border bg-transparent p-0.5"
+                    title="Elegir con selector de color"
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={customHex}
+                  onChange={(e) => handleCustomColorChange(e.target.value)}
+                  placeholder="#0284c7"
+                  maxLength={7}
+                  className="w-24 rounded-lg border border-border bg-background px-2.5 py-1 text-xs font-mono uppercase outline-none focus:border-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleCustomColorChange(customHex)}
+                  className={`px-2.5 py-1 text-xs rounded-lg border transition ${
+                    themeColor === customHex
+                      ? "bg-primary text-primary-foreground font-bold border-primary"
+                      : "border-border bg-background text-foreground hover:bg-muted"
+                  }`}
+                >
+                  Aplicar
+                </button>
+              </div>
+            </div>
           </div>
         </Field>
 
@@ -5706,7 +6035,7 @@ function AdminDesign() {
           type="button"
           onClick={saveDesign}
           disabled={saving}
-          className="w-full rounded-2xl bg-primary py-3.5 font-bold text-primary-foreground shadow-xs transition active:scale-[0.98]"
+          className="w-full rounded-2xl bg-primary py-3.5 font-bold text-primary-foreground shadow-xs transition active:scale-[0.98] hover:bg-primary/90"
         >
           {saving ? "Guardando estilo..." : saved ? "¡Estilo Guardado! ✨" : "Guardar Personalización"}
         </button>

@@ -196,6 +196,7 @@ router.get("/auth/invitations/:token", async (req, res): Promise<void> => {
         email: invitation.email,
         name: invitation.name,
         kioskId: invitation.kioskId,
+        kioskSlug: kiosk?.slug || invitation.kioskId,
         kioskName: kiosk?.name || invitation.kioskId,
         expiresAt: invitation.expiresAt,
       },

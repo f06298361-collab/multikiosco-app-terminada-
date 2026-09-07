@@ -15,6 +15,7 @@ export function AcceptInvitationScreen({ token, onSuccess, onCancel }: AcceptInv
     email: string;
     name: string;
     kioskId: string;
+    kioskSlug?: string;
     kioskName: string;
     expiresAt: string;
   } | null>(null);
@@ -41,6 +42,10 @@ export function AcceptInvitationScreen({ token, onSuccess, onCancel }: AcceptInv
 
       if (res.ok && res.invitation) {
         setInvitation(res.invitation);
+        store.dismissNotice();
+        if (res.invitation.kioskId) {
+          store.selectKiosk(res.invitation.kioskId);
+        }
       } else {
         setError(res.error || "No se pudo validar el enlace de invitación.");
         if (res.expired) setIsExpired(true);
@@ -84,10 +89,14 @@ export function AcceptInvitationScreen({ token, onSuccess, onCancel }: AcceptInv
         type: "success",
       });
       setTimeout(() => {
-        // Clean URL invitation query param if present
+        // Clean URL invitation query param if present and preserve target kiosk
         if (typeof window !== "undefined" && window.history?.replaceState) {
           const url = new URL(window.location.href);
           url.searchParams.delete("invitation");
+          url.searchParams.delete("invite");
+          if (invitation?.kioskId) {
+            url.searchParams.set("kiosk", invitation.kioskSlug || invitation.kioskId);
+          }
           window.history.replaceState({}, document.title, url.toString());
         }
         onSuccess();

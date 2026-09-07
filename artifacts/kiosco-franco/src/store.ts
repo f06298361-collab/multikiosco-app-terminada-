@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { applyThemeColor, getCachedKioskTheme, setCachedKioskTheme } from "./theme";
 
 export type ProductBadge = "oferta" | "destacado" | "promocion" | "ultimas_unidades" | null;
 
@@ -42,7 +43,7 @@ export type Order = {
 };
 
 export type ThemeStyle = "modern" | "classic" | "vibrant";
-export type ThemeColor = "sky" | "emerald" | "violet" | "amber" | "rose" | "slate";
+export type ThemeColor = "sky" | "emerald" | "violet" | "amber" | "rose" | "indigo" | "teal" | "slate" | string;
 
 export type ToastType = "info" | "success" | "warning" | "order";
 
@@ -122,6 +123,26 @@ export type KioskNotice = {
   message: string;
 } | null;
 
+export type AssignedKiosk = {
+  id: string;
+  name: string;
+  slug: string | null;
+  active: boolean;
+};
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  name: string;
+  role: "superadmin" | "admin";
+  kioskId?: string | null;
+  assignedKiosks?: AssignedKiosk[];
+  kioskIds?: string[];
+  active?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export type State = {
   products: Product[];
   cart: CartItem[];
@@ -135,6 +156,8 @@ export type State = {
   currentKiosk: Kiosk;
   toasts: ToastNotification[];
   notifications: NotificationItem[];
+  adminUser: AdminUser | null;
+  adminRole: "superadmin" | "admin" | null;
 };
 
 
@@ -177,6 +200,13 @@ function loadSelectedKioskId(): string {
         if (["kiosk", "kioskid", "kiosk_id"].includes(key.toLowerCase()) && val.trim()) {
           return val.trim();
         }
+      }
+      const sessionRaw = localStorage.getItem("ferrapp_active_checkout_v1");
+      if (sessionRaw) {
+        try {
+          const session = JSON.parse(sessionRaw);
+          if (session?.kioskId) return session.kioskId;
+        } catch {}
       }
       return localStorage.getItem(SELECTED_KIOSK_KEY) || "";
     } catch {
@@ -228,7 +258,10 @@ function getCurrentKioskObj(s: {
   const activeFromSettings = s.settings?.active;
   if (k) {
     return {
+      createdAt: "",
+      updatedAt: "",
       ...k,
+      slug: k.slug || "",
       name: s.settings?.shopName || k.name,
       active: typeof activeFromSettings === "boolean" ? activeFromSettings : (k.active !== false),
     };
@@ -244,6 +277,62 @@ function getCurrentKioskObj(s: {
     updatedAt: "",
   };
 }
+
+const ADMIN_TOKEN_KEY = "kiosco-franco-admin-token-v1";
+const ADMIN_USER_KEY = "kiosco-franco-admin-user-v1";
+
+function parseUserFromToken(token: string | null): Partial<AdminUser> | null {
+  if (!token) return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 2) return null;
+    const base64 = parts[0].replace(/-/g, "+").replace(/_/g, "/");
+    const jsonStr = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    const p = JSON.parse(jsonStr);
+    if (p && (p.role === "superadmin" || p.role === "admin")) {
+      return {
+        id: p.userId || p.id,
+        username: p.username,
+        name: p.name,
+        role: p.role,
+        kioskId: p.kioskId,
+      };
+    }
+  } catch {}
+  return null;
+}
+
+let adminToken: string | null = ((): string | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(ADMIN_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+})();
+
+let adminUser: AdminUser | null = ((): AdminUser | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(ADMIN_USER_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.role === "superadmin" || parsed.role === "admin")) {
+        return parsed;
+      }
+    }
+  } catch {}
+  const fromToken = parseUserFromToken(adminToken);
+  if (fromToken && fromToken.role) {
+    return fromToken as AdminUser;
+  }
+  return null;
+})();
 
 const initialSelectedKioskId = loadSelectedKioskId();
 
@@ -267,6 +356,8 @@ let state: State = {
   },
   toasts: [],
   notifications: loadInitialNotifications(),
+  adminUser: adminUser,
+  adminRole: adminUser?.role || parseUserFromToken(adminToken)?.role || (adminToken ? "admin" : null),
 };
 
 const listeners = new Set<() => void>();
@@ -277,48 +368,6 @@ function setState(updater: (s: State) => State) {
   state = next;
   listeners.forEach((l) => l());
 }
-
-const ADMIN_TOKEN_KEY = "kiosco-franco-admin-token-v1";
-const ADMIN_USER_KEY = "kiosco-franco-admin-user-v1";
-
-export type AssignedKiosk = {
-  id: string;
-  name: string;
-  slug: string | null;
-  active: boolean;
-};
-
-export interface AdminUser {
-  id: string;
-  username: string;
-  name: string;
-  role: "superadmin" | "admin";
-  kioskId?: string | null;
-  assignedKiosks?: AssignedKiosk[];
-  kioskIds?: string[];
-  active?: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-let adminToken: string | null = ((): string | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(ADMIN_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-})();
-
-let adminUser: AdminUser | null = ((): AdminUser | null => {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(ADMIN_USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-})();
 
 const API = "/api";
 
@@ -447,7 +496,9 @@ export function getAudioStatus(): "running" | "suspended" | "closed" | "unsuppor
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
   if (!AudioContextClass) return "unsupported";
   if (!sharedAudioCtx) return "suspended";
-  return sharedAudioCtx.state;
+  if (sharedAudioCtx.state === "running") return "running";
+  if (sharedAudioCtx.state === "closed") return "closed";
+  return "suspended";
 }
 
 export async function unlockAudioPipeline(): Promise<boolean> {
@@ -945,6 +996,14 @@ export function updatePwaHead(settings: Settings) {
   if (faviconLink) {
     faviconLink.href = `/api/kiosk-icon?kiosk=${encodeURIComponent(slug)}`;
   }
+
+  // Apply business theme color to CSS variables and cache locally per kiosk
+  const effectiveTheme = settings.themeColor || "sky";
+  applyThemeColor(effectiveTheme);
+  const effectiveKioskId = settings.kioskId || state.selectedKioskId;
+  if (effectiveKioskId) {
+    setCachedKioskTheme(effectiveKioskId, effectiveTheme);
+  }
 }
 
 async function refreshSettings(kioskOrParam?: string) {
@@ -1020,14 +1079,20 @@ export function handleKioskDeleted(deletedKioskId?: string) {
       }
     } catch {}
 
-    const admin = getAdminUser();
+    const admin = adminUser;
     if (
       admin?.role === "admin" &&
       (!deletedKioskId ||
         admin.kioskId === deletedKioskId ||
-        admin.assignedKiosks?.some((k) => k.id === deletedKioskId || k.slug === deletedKioskId))
+        admin.assignedKiosks?.some((k: { id: string; slug?: string | null }) => k.id === deletedKioskId || k.slug === deletedKioskId))
     ) {
-      logoutAdmin();
+      adminToken = null;
+      adminUser = null;
+      try {
+        localStorage.removeItem(ADMIN_TOKEN_KEY);
+        localStorage.removeItem(ADMIN_USER_KEY);
+        localStorage.removeItem(SELECTED_KIOSK_KEY);
+      } catch {}
     }
 
     if (typeof window !== "undefined" && window.history?.replaceState) {
@@ -1103,14 +1168,21 @@ function selectKiosk(kioskId: string) {
       products: [],
       orders: [],
       cart: isDifferentKiosk ? loadCart(realKioskId) : s.cart,
-      currentKiosk: targetKiosk || {
-        id: realKioskId,
-        name: fallbackName,
-        slug: fallbackSlug,
-        active: true,
-        createdAt: "",
-        updatedAt: "",
-      },
+      currentKiosk: targetKiosk
+        ? {
+            createdAt: "",
+            updatedAt: "",
+            ...targetKiosk,
+            slug: targetKiosk.slug || "",
+          }
+        : {
+            id: realKioskId,
+            name: fallbackName,
+            slug: fallbackSlug,
+            active: true,
+            createdAt: "",
+            updatedAt: "",
+          },
       settings: {
         shopName: fallbackName,
         whatsappNumber: "",
@@ -1127,6 +1199,14 @@ function selectKiosk(kioskId: string) {
   try {
     localStorage.setItem(SELECTED_KIOSK_KEY, kioskId);
   } catch {}
+
+  // Apply cached theme immediately for the newly selected kiosk to prevent theme bleeding
+  const cachedTheme = getCachedKioskTheme(kioskId);
+  if (cachedTheme) {
+    applyThemeColor(cachedTheme);
+  } else {
+    applyThemeColor("sky");
+  }
 
   const targetKiosk =
     state.publicKiosks.find((k) => k.id === kioskId || k.slug === kioskId) ||
@@ -1152,6 +1232,11 @@ function selectKiosk(kioskId: string) {
 
 export async function bootstrap() {
   try {
+    if (initialSelectedKioskId) {
+      const cached = getCachedKioskTheme(initialSelectedKioskId);
+      if (cached) applyThemeColor(cached);
+    }
+
     if (adminToken) {
       await verifyAdmin();
     }
@@ -1159,34 +1244,70 @@ export async function bootstrap() {
     await refreshPublicKiosks();
 
     let urlParam: string | null = null;
+    let hasInvitationToken = false;
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
-      for (const [key, val] of urlParams.entries()) {
-        if (["kiosk", "kioskid", "kiosk_id"].includes(key.toLowerCase())) {
-          urlParam = val.trim();
-          break;
+      const inviteToken = urlParams.get("invitation") || urlParams.get("invite");
+      if (inviteToken) {
+        hasInvitationToken = true;
+      }
+
+      // If opening an invitation link, skip standard kiosk urlParam resolution
+      if (!hasInvitationToken) {
+        for (const [key, val] of urlParams.entries()) {
+          if (["kiosk", "kioskid", "kiosk_id"].includes(key.toLowerCase()) && val.trim()) {
+            urlParam = val.trim();
+            break;
+          }
         }
       }
 
-      if (!urlParam && window.location.hostname) {
+      if (!hasInvitationToken && !urlParam && window.location.hostname) {
         const hostname = window.location.hostname.toLowerCase();
-        const isReplitHost =
-          hostname === "replit.dev" ||
+        const isPlatformHost =
+          hostname === "localhost" ||
+          hostname === "127.0.0.1" ||
+          hostname.endsWith(".local") ||
           hostname.endsWith(".replit.dev") ||
-          hostname === "replit.app" ||
-          hostname.endsWith(".replit.app");
-        if (!isReplitHost) {
+          hostname.endsWith(".replit.app") ||
+          hostname.endsWith(".onrender.com") ||
+          hostname.endsWith(".run.app") ||
+          hostname.endsWith(".railway.app") ||
+          hostname.endsWith(".up.railway.app") ||
+          hostname.endsWith(".vercel.app") ||
+          hostname.endsWith(".netlify.app") ||
+          hostname.endsWith(".github.io") ||
+          hostname.endsWith(".pages.dev");
+
+        if (!isPlatformHost) {
           const parts = hostname.split(".");
-          if (parts.length >= 2) {
+          // Subdomains require at least 3 parts (e.g. mitienda.midominio.com)
+          if (parts.length >= 3) {
             const sub = parts[0];
-            const ignored = ["www", "app", "dev", "api", "localhost", "127", "0"];
+            const ignored = [
+              "www", "app", "dev", "api", "localhost", "127", "0",
+              "ferrapp", "ferr-app", "kiosco", "kiosco-franco", "tienda",
+              "admin", "panel", "superadmin", "portal", "mail"
+            ];
             const isIgnored = ignored.some((ign) => sub === ign || sub.startsWith("ais-dev-") || sub.startsWith("ais-pre-"));
             if (!isIgnored && sub) {
-              urlParam = sub;
+              // Only treat as kiosk if it matches a known kiosk
+              const matchingKiosk = state.publicKiosks.find(
+                (k) => k.slug?.toLowerCase() === sub || k.id.toLowerCase() === sub
+              );
+              if (matchingKiosk) {
+                urlParam = matchingKiosk.id;
+              }
             }
           }
         }
       }
+    }
+
+    // If an invitation token is present, do not show kiosk not found errors or force fallback
+    if (hasInvitationToken) {
+      setState((s) => ({ ...s, urlKioskNotice: null }));
+      return;
     }
 
     let activeKioskToSelect = state.selectedKioskId;
@@ -1482,6 +1603,11 @@ export const store = {
     persistCart();
   },
 
+  restoreCart: (cart: CartItem[]) => {
+    setState((s) => ({ ...s, cart: [...cart] }));
+    persistCart();
+  },
+
   createOrder: async (data: {
     customerName: string;
     address: string;
@@ -1524,7 +1650,7 @@ export const store = {
     setState((s) => ({
       ...s,
       orders: [real, ...s.orders.filter((o) => o.id !== real.id)],
-      cart: [],
+      cart: data.payment === "mercadopago" ? s.cart : [],
     }));
     persistCart();
 
@@ -2022,6 +2148,7 @@ getLastOrder: (): Order | null => {
       email: string;
       name: string;
       kioskId: string;
+      kioskSlug?: string;
       kioskName: string;
       expiresAt: string;
     };
@@ -2037,6 +2164,7 @@ getLastOrder: (): Order | null => {
           email: string;
           name: string;
           kioskId: string;
+          kioskSlug?: string;
           kioskName: string;
           expiresAt: string;
         };
