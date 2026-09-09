@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, or, isNull } from "drizzle-orm";
 import {
   db,
   usersTable,
@@ -285,13 +285,22 @@ router.post("/auth/invitations/accept", async (req, res): Promise<void> => {
         .onConflictDoNothing();
 
       // Mark invitation as accepted and invalidate token
+      const acceptTimestamp = new Date();
       await db
         .update(adminInvitationsTable)
         .set({
-          acceptedAt: new Date(),
-          updatedAt: new Date(),
+          acceptedAt: acceptTimestamp,
+          updatedAt: acceptTimestamp,
         })
-        .where(eq(adminInvitationsTable.id, invitation.id));
+        .where(
+          or(
+            eq(adminInvitationsTable.id, invitation.id),
+            and(
+              eq(adminInvitationsTable.email, cleanEmail),
+              isNull(adminInvitationsTable.acceptedAt)
+            )
+          )
+        );
 
       const assignedKiosks = await getUserAssignedKiosks(existingUser.id, "admin", invitation.kioskId);
 
@@ -345,13 +354,22 @@ router.post("/auth/invitations/accept", async (req, res): Promise<void> => {
       .onConflictDoNothing();
 
     // Mark invitation as accepted
+    const newUserAcceptTimestamp = new Date();
     await db
       .update(adminInvitationsTable)
       .set({
-        acceptedAt: new Date(),
-        updatedAt: new Date(),
+        acceptedAt: newUserAcceptTimestamp,
+        updatedAt: newUserAcceptTimestamp,
       })
-      .where(eq(adminInvitationsTable.id, invitation.id));
+      .where(
+        or(
+          eq(adminInvitationsTable.id, invitation.id),
+          and(
+            eq(adminInvitationsTable.email, cleanEmail),
+            isNull(adminInvitationsTable.acceptedAt)
+          )
+        )
+      );
 
     const assignedKiosks = await getUserAssignedKiosks(newUser.id, "admin", invitation.kioskId);
 

@@ -961,28 +961,63 @@ router.get("/admin/invitations", async (_req: AuthRequest, res): Promise<void> =
     const kiosks = await db.select({ id: kiosksTable.id, name: kiosksTable.name, slug: kiosksTable.slug }).from(kiosksTable);
     const kioskMap = new Map<string, any>(kiosks.map((k: any) => [k.id, k]));
 
-    const now = new Date();
-    const enriched = invitations.map((inv: any) => {
-      const isAccepted = !!inv.acceptedAt;
-      const isExpired = !isAccepted && new Date(inv.expiresAt) < now;
-      let status: "accepted" | "expired" | "pending" = "pending";
-      if (isAccepted) status = "accepted";
-      else if (isExpired) status = "expired";
+    // Fetch existing users to verify active accounts
+    const existingUsers = await db.select().from(usersTable);
+    const activeUsersMap = new Map<string, any>(
+      existingUsers
+        .filter((u: any) => u.active !== false)
+        .map((u: any) => [(u.username || "").toLowerCase().trim(), u])
+    );
 
-      const kiosk = kioskMap.get(inv.kioskId);
-      return {
-        id: inv.id,
-        email: inv.email,
-        name: inv.name,
-        kioskId: inv.kioskId,
-        kioskName: kiosk?.name || inv.kioskId,
-        kioskSlug: kiosk?.slug || inv.kioskId,
-        status,
-        expiresAt: inv.expiresAt,
-        acceptedAt: inv.acceptedAt,
-        createdAt: inv.createdAt,
-      };
-    });
+    const now = new Date();
+    const enriched = await Promise.all(
+      invitations.map(async (inv: any) => {
+        const rawAcceptedAt = inv.acceptedAt || inv.accepted_at;
+        let isAccepted = Boolean(rawAcceptedAt);
+
+        // If acceptedAt timestamp wasn't recorded directly, verify if the user actually activated their account
+        const cleanEmail = (inv.email || "").toLowerCase().trim();
+        const activeUser = activeUsersMap.get(cleanEmail);
+        let resolvedAcceptedAt = rawAcceptedAt;
+
+        if (!isAccepted && activeUser) {
+          isAccepted = true;
+          resolvedAcceptedAt = activeUser.createdAt ? new Date(activeUser.createdAt) : new Date();
+          // Persist the accepted status in the database so it is saved permanently
+          try {
+            await db
+              .update(adminInvitationsTable)
+              .set({
+                acceptedAt: resolvedAcceptedAt,
+                updatedAt: new Date(),
+              })
+              .where(eq(adminInvitationsTable.id, inv.id));
+          } catch (dbErr) {
+            console.warn("Notice: could not update invitation acceptedAt in DB:", dbErr);
+          }
+        }
+
+        const expiresAtDate = new Date(inv.expiresAt || inv.expires_at);
+        const isExpired = !isAccepted && expiresAtDate < now;
+        let status: "accepted" | "expired" | "pending" = "pending";
+        if (isAccepted) status = "accepted";
+        else if (isExpired) status = "expired";
+
+        const kiosk = kioskMap.get(inv.kioskId);
+        return {
+          id: inv.id,
+          email: inv.email,
+          name: inv.name,
+          kioskId: inv.kioskId,
+          kioskName: kiosk?.name || inv.kioskId,
+          kioskSlug: kiosk?.slug || inv.kioskId,
+          status,
+          expiresAt: inv.expiresAt || inv.expires_at,
+          acceptedAt: resolvedAcceptedAt,
+          createdAt: inv.createdAt || inv.created_at,
+        };
+      })
+    );
 
     res.json({ ok: true, invitations: enriched });
   } catch (err) {

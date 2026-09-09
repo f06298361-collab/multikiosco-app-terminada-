@@ -28,6 +28,7 @@ import {
   X,
   Settings2,
   LayoutGrid,
+  LayoutDashboard,
   Users,
   ChevronRight,
   Copy,
@@ -791,7 +792,12 @@ export default function App() {
     if (!store.hasAdminAuth()) {
       return;
     }
-    setScreen("admin");
+    const currentRole = store.getAdminRole() || role;
+    if (currentRole === "superadmin") {
+      setScreen("superadmin");
+    } else {
+      setScreen("admin");
+    }
   };
 
   const handleSelectScreen = (s: Screen) => {
@@ -828,6 +834,14 @@ export default function App() {
     setScreen("confirmation");
   };
 
+  const isClientScreen = [
+    "products",
+    "cart",
+    "checkout",
+    "payment",
+    "confirmation",
+  ].includes(screen);
+
   return (
     <>
       {adminAuthed && (
@@ -843,6 +857,35 @@ export default function App() {
         style={{ paddingTop: adminAuthed ? 40 : 0 }}
       >
         {screen !== "superadmin" && (screen !== "admin" || adminAuthed) && <Header currentScreen={screen} />}
+
+        {adminAuthed && isClientScreen && (
+          <div className="bg-amber-500 text-slate-950 px-3.5 py-2 text-xs border-b border-amber-600/40 shadow-sm flex items-center justify-between gap-2.5 z-40 sticky top-0 backdrop-blur-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-950 text-amber-400 shrink-0">
+                <Eye className="h-3 w-3" />
+              </span>
+              <div className="min-w-0">
+                <p className="font-bold leading-tight flex items-center gap-1.5 truncate">
+                  <span>Modo Vista Previa</span>
+                  <span className="hidden sm:inline-block text-[10px] font-semibold bg-slate-950/15 px-1.5 py-0.5 rounded text-slate-950">
+                    Sesión Admin activa
+                  </span>
+                </p>
+                <p className="text-[10px] text-slate-900/80 leading-tight hidden xs:block truncate">
+                  Estás viendo cómo tus clientes ven el catálogo y realizan pedidos.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleGoAdmin}
+              className="flex items-center gap-1.5 rounded-xl bg-slate-950 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-900 active:scale-95 transition shadow-xs shrink-0 cursor-pointer"
+            >
+              <LayoutDashboard className="h-3.5 w-3.5 text-amber-400" />
+              <span>Volver al Panel Admin</span>
+            </button>
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto pb-24">
           <AppErrorBoundary key={screen}>
@@ -908,7 +951,7 @@ export default function App() {
 
             {screen === "admin" && (
               adminAuthed
-                ? <AdminPanel onLogout={handleLogout} />
+                ? <AdminPanel onLogout={handleLogout} onViewStore={() => setScreen("products")} />
                 : <AdminLogin
                     onAuth={handleAuthSuccess}
                     title="Acceso al panel"
@@ -1015,32 +1058,39 @@ function TopViewSwitcher({
 
   return (
     <div className="fixed top-0 inset-x-0 z-[9999] flex h-10 items-center justify-center bg-slate-950 px-3 sm:px-6 border-b border-slate-900 text-white shadow-sm">
-      <div className="flex items-center justify-between gap-1 overflow-x-auto py-1 no-scrollbar max-w-7xl w-full">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between gap-2 overflow-x-auto py-1 no-scrollbar max-w-7xl w-full">
+        <div className="flex items-center gap-1.5">
           <button
             className={getBtnClass(isClientView)}
             onClick={() => onSelectScreen("products")}
+            title="Vista previa de la tienda"
           >
-            Tienda
+            {isClientView ? "Tienda (Vista Previa)" : "Ver Tienda"}
           </button>
           <button
             className={getBtnClass(isAdminView)}
             onClick={() => onSelectScreen("admin")}
+            title="Panel de Administración"
           >
-            Admin
+            Panel Admin
           </button>
           {isSuperAdminRole && (
             <button
               className={getBtnClass(isSuperAdminView)}
               onClick={() => onSelectScreen("superadmin")}
+              title="Panel de SuperAdmin"
             >
               SuperAdmin
             </button>
           )}
         </div>
-        <span className="text-[10px] font-semibold text-slate-500 tracking-wider select-none">
-          FerrApp
-        </span>
+        <div className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-400 select-none shrink-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+          <span className="hidden sm:inline">Sesión Admin:</span>
+          <span className="text-slate-200 truncate max-w-[120px] sm:max-w-xs">
+            {storeAdminUser?.name || storeAdminUser?.username || (effectiveRole === "superadmin" ? "SuperAdmin" : "Admin")}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -1372,7 +1422,9 @@ function BottomNav({
   cartCount: number;
   onChange: (s: Screen) => void;
 }) {
-  const isAuthedAdmin = store.hasAdminAuth() && (role === "admin" || role === "superadmin");
+  const isAuthedAdmin = Boolean(
+    store.hasAdminAuth() && (role === "admin" || role === "superadmin" || store.getAdminRole() === "admin" || store.getAdminRole() === "superadmin")
+  );
 
   const items: { id: Screen; label: string; icon: typeof Store; badge?: number }[] = [
     { id: "products", label: "Productos", icon: Store },
@@ -3317,7 +3369,13 @@ function AdminTutorialModal({
 
 // ─── Admin Panel Principal ───────────────────────────────────────────────────
 
-function AdminPanel({ onLogout }: { onLogout?: () => void } = {}) {
+function AdminPanel({
+  onLogout,
+  onViewStore,
+}: {
+  onLogout?: () => void;
+  onViewStore?: () => void;
+} = {}) {
   const [tab, setTab] = useState<"orders" | "sales" | "products" | "promotions" | "marketing" | "stats" | "design" | "settings">("orders");
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const currentKiosk = useStore((s) => s.currentKiosk);
@@ -3509,12 +3567,19 @@ function AdminPanel({ onLogout }: { onLogout?: () => void } = {}) {
 
             <button
               type="button"
-              onClick={() => store.setView("client")}
-              className="flex items-center gap-1.5 rounded-xl border border-primary/20 bg-background hover:bg-accent px-3 py-1.5 text-xs font-bold text-primary transition shadow-2xs flex-shrink-0"
+              onClick={() => {
+                if (onViewStore) {
+                  onViewStore();
+                } else {
+                  store.setView("client");
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 hover:bg-primary/20 px-3 py-1.5 text-xs font-bold text-primary transition shadow-2xs flex-shrink-0 active:scale-95 cursor-pointer"
+              title="Ver cómo ven la tienda tus clientes (modo vista previa)"
             >
               <Eye className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Ver tienda cliente</span>
-              <span className="sm:hidden">Ver</span>
+              <span className="hidden sm:inline">Ver como tienda</span>
+              <span className="sm:hidden">Ver como tienda</span>
             </button>
 
             {onLogout && (
@@ -3565,14 +3630,29 @@ function AdminPanel({ onLogout }: { onLogout?: () => void } = {}) {
               <span>Compartir</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() => {
+                if (onViewStore) {
+                  onViewStore();
+                }
+              }}
+              className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-bold text-primary-foreground hover:bg-primary/90 transition active:scale-95 cursor-pointer"
+              title="Abrir vista previa de la tienda"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              <span>Ver como tienda</span>
+            </button>
+
             <a
               href={storeUrl}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1.5 text-[11px] font-bold text-primary-foreground hover:bg-primary/90 transition active:scale-95"
+              className="flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition active:scale-95"
+              title="Abrir enlace público en pestaña nueva"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              <span>Abrir</span>
+              <span className="hidden xs:inline">Pestaña nueva</span>
             </a>
           </div>
         </div>
@@ -3611,7 +3691,7 @@ function AdminPanel({ onLogout }: { onLogout?: () => void } = {}) {
       {tab === "marketing" && <AdminMarketing />}
       {tab === "stats" && <AdminStats />}
       {tab === "design" && <AdminDesign />}
-      {tab === "settings" && <AdminSettings />}
+      {tab === "settings" && <AdminSettings onViewStore={onViewStore} />}
 
       {editingOrder && (
         <EditOrderModal
@@ -5210,7 +5290,7 @@ function ProductForm({
 
 // ─── Admin: Ajustes ───────────────────────────────────────────────────────────
 
-function AdminSettings() {
+function AdminSettings({ onViewStore }: { onViewStore?: () => void } = {}) {
   const settings = useStore((s) => s.settings);
   const currentKiosk = useStore((s) => s.currentKiosk);
   const [shopName, setShopName] = useState(settings.shopName || currentKiosk.name || "");
@@ -5329,15 +5409,27 @@ function AdminSettings() {
               <Share2 className="h-4 w-4 text-muted-foreground" />
               <span>Compartir</span>
             </button>
-            <a
-              href={storeUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition active:scale-95"
-            >
-              <ExternalLink className="h-4 w-4" />
-              <span>Abrir</span>
-            </a>
+            {onViewStore ? (
+              <button
+                type="button"
+                onClick={onViewStore}
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition active:scale-95 cursor-pointer"
+                title="Abrir vista previa de la tienda"
+              >
+                <Eye className="h-4 w-4" />
+                <span>Ver como tienda</span>
+              </button>
+            ) : (
+              <a
+                href={storeUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition active:scale-95"
+              >
+                <ExternalLink className="h-4 w-4" />
+                <span>Abrir</span>
+              </a>
+            )}
           </div>
         </div>
       </SectionCard>
@@ -7126,10 +7218,31 @@ function SuperAdminPanel({
     }
   }, []);
 
+  // Sincronización continua y periódica de SuperAdmin (invitaciones, usuarios y kioscos)
   useEffect(() => {
     loadKiosks();
     loadUsers();
     loadInvitations();
+
+    const intervalId = setInterval(() => {
+      loadInvitations();
+      loadUsers();
+    }, 3000);
+
+    const handleFocus = () => {
+      loadInvitations();
+      loadUsers();
+      loadKiosks();
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
   }, [loadKiosks, loadUsers, loadInvitations]);
 
   const activeKiosksCount = useMemo(() => {
@@ -8246,23 +8359,37 @@ function SuperAdminPanel({
                 </button>
               </div>
 
-              {/* SECCIÓN INVITACIONES PENDIENTES */}
+              {/* SECCIÓN INVITACIONES */}
               {invitations.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                      <Mail className="h-3.5 w-3.5 text-amber-500" />
-                      Invitaciones Pendientes ({invitations.filter((i) => i.status === "pending").length})
+                      <Mail className="h-3.5 w-3.5 text-primary" />
+                      Invitaciones de Administradores ({invitations.length})
                     </h4>
+                    {invitations.some((i) => i.status === "pending") && (
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-100/80 border border-amber-300/70 px-2 py-0.5 rounded-full">
+                        {invitations.filter((i) => i.status === "pending").length} pendiente{invitations.filter((i) => i.status === "pending").length === 1 ? "" : "s"}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex flex-col gap-2">
                     {invitations.map((inv) => {
                       const isPending = inv.status === "pending";
+                      const isAccepted = inv.status === "accepted";
+                      const isExpired = inv.status === "expired";
+
                       return (
                         <div
                           key={inv.id}
-                          className="rounded-2xl border border-amber-200/80 bg-amber-50/40 p-3 shadow-2xs space-y-2"
+                          className={`rounded-2xl border p-3 shadow-2xs space-y-2 transition-all ${
+                            isAccepted
+                              ? "border-emerald-200/90 bg-emerald-50/50"
+                              : isPending
+                              ? "border-amber-200/90 bg-amber-50/50"
+                              : "border-slate-200/90 bg-slate-50/50"
+                          }`}
                         >
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
@@ -8272,12 +8399,12 @@ function SuperAdminPanel({
                                   className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase border ${
                                     isPending
                                       ? "bg-amber-100 text-amber-800 border-amber-300"
-                                      : inv.status === "accepted"
+                                      : isAccepted
                                       ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                                       : "bg-slate-100 text-slate-700 border-slate-300"
                                   }`}
                                 >
-                                  {isPending ? "Pendiente" : inv.status === "accepted" ? "Aceptada" : "Expirada"}
+                                  {isPending ? "Pendiente" : isAccepted ? "Aceptada" : "Expirada"}
                                 </span>
                               </div>
                               <p className="text-[11px] text-muted-foreground font-mono mt-0.5 truncate">{inv.email}</p>
@@ -8304,14 +8431,33 @@ function SuperAdminPanel({
                                 </button>
                               </div>
                             )}
+
+                            {isAccepted && (
+                              <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 border border-emerald-200/80 px-2 py-0.5 rounded-lg flex-shrink-0">
+                                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                <span>Cuenta activada</span>
+                              </div>
+                            )}
                           </div>
 
-                          <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t border-amber-200/50 pt-1.5">
+                          <div
+                            className={`flex items-center justify-between text-[11px] border-t pt-1.5 ${
+                              isAccepted
+                                ? "text-emerald-800/80 border-emerald-200/60"
+                                : isPending
+                                ? "text-muted-foreground border-amber-200/60"
+                                : "text-muted-foreground border-slate-200/60"
+                            }`}
+                          >
                             <span className="flex items-center gap-1">
-                              <Store className="h-3 w-3 text-amber-600" />
+                              <Store className={`h-3 w-3 ${isAccepted ? "text-emerald-600" : "text-amber-600"}`} />
                               Asignado: <strong className="text-foreground">{inv.kioskName || inv.kioskId}</strong>
                             </span>
-                            <span>Expira: {new Date(inv.expiresAt).toLocaleDateString()}</span>
+                            <span>
+                              {isAccepted && inv.acceptedAt
+                                ? `Aceptada: ${new Date(inv.acceptedAt).toLocaleDateString()}`
+                                : `Expira: ${new Date(inv.expiresAt).toLocaleDateString()}`}
+                            </span>
                           </div>
                         </div>
                       );
