@@ -810,13 +810,19 @@ const STATUS_TEXTS: Record<OrderStatus, string> = {
   entregado: "Entregado ✅",
 };
 
+let isRefreshingOrders = false;
+
 async function refreshOrders() {
+  if (isRefreshingOrders) return;
+  isRefreshingOrders = true;
   try {
     const isAdminView = state.view === "admin" || state.view === "superadmin" || !!adminToken;
     let query = state.selectedKioskId ? `?kioskId=${encodeURIComponent(state.selectedKioskId)}` : "";
 
     if (!isAdminView) {
-      const customerIds = getCustomerOrderIds();
+      const storedIds = getCustomerOrderIds();
+      const stateOrderIds = state.orders.map((o) => o.id);
+      const customerIds = Array.from(new Set([...storedIds, ...stateOrderIds]));
       if (customerIds.length === 0) {
         // El cliente todavía no ha realizado pedidos
         setState((s) => ({ ...s, orders: [] }));
@@ -869,15 +875,12 @@ async function refreshOrders() {
       } else if (prevStatus !== o.status) {
         // Cambio de estado relevante únicamente para el cliente que generó el pedido
         const customerIds = getCustomerOrderIds();
-        const isTargetCustomerOrder = customerIds.includes(o.id) || (currentLastOrderId && o.id === currentLastOrderId);
-        const matchesCurrentKiosk =
-          !activeKioskId ||
-          !orderKioskId ||
-          orderKioskId === activeKioskId ||
-          orderKioskId === state.currentKiosk.id ||
-          orderKioskId === state.currentKiosk.slug;
+        const isTargetCustomerOrder =
+          customerIds.includes(o.id) ||
+          (currentLastOrderId && o.id === currentLastOrderId) ||
+          state.orders.some((item) => item.id === o.id);
 
-        if (!isAdminView && isTargetCustomerOrder && matchesCurrentKiosk) {
+        if (!isAdminView && isTargetCustomerOrder) {
           const eventKey = `status_${o.id}_${o.status}`;
           if (!notifiedOrderEvents.has(eventKey)) {
             notifiedOrderEvents.add(eventKey);
@@ -929,6 +932,8 @@ async function refreshOrders() {
       return;
     }
     console.warn("Failed to refresh orders", err);
+  } finally {
+    isRefreshingOrders = false;
   }
 }
 
@@ -1537,6 +1542,9 @@ export const store = {
     }
   },
   setView: (view: "client" | "admin" | "superadmin") => {
+    if ((view === "admin" || view === "superadmin") && !adminToken) {
+      return;
+    }
     setState((s) => ({ ...s, view }));
   },
   selectKiosk: (kioskId: string) => {
@@ -1657,19 +1665,28 @@ export const store = {
     return real;
   },
 
-  updateOrderStatus: (orderId: string, status: OrderStatus) => {
+  updateOrderStatus: async (orderId: string, status: OrderStatus) => {
     knownOrders.set(orderId, status);
     notifiedOrderEvents.add(`status_${orderId}_${status}`);
     setState((s) => ({
       ...s,
       orders: s.orders.map((o) => (o.id === orderId ? { ...o, status } : o)),
     }));
-    api<Order>(`/orders/${orderId}`, {
-      method: "PATCH",
-      json: { status },
-    }).catch(() => {
+    try {
+      const updated = await api<Order>(`/orders/${orderId}`, {
+        method: "PATCH",
+        json: { status },
+      });
+      if (updated) {
+        setState((s) => ({
+          ...s,
+          orders: s.orders.map((o) => (o.id === orderId ? { ...o, ...updated } : o)),
+        }));
+      }
+    } catch (err) {
+      console.warn("Error al actualizar estado en servidor:", err);
       void refreshOrders();
-    });
+    }
   },
 
   updateOrder: async (
@@ -2399,12 +2416,13 @@ export function useStore<T>(selector: (s: State) => T): T {
 }
 
 export function formatPrice(value: number): string {
+  const num = typeof value === "number" && !isNaN(value) ? value : Number(value) || 0;
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(num);
 }
 
 export function formatOrderNumber(order: { orderNumber?: number | null; id: string }): string {

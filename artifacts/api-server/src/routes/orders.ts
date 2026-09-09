@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, inArray, and } from "drizzle-orm";
+import { desc, eq, inArray, and, or } from "drizzle-orm";
 import { db, pool, ordersTable, kiosksTable, productsTable } from "@workspace/db";
 import {
   requireAdmin,
@@ -116,21 +116,40 @@ router.get("/orders", async (req, res): Promise<void> => {
         res.json([]);
         return;
       }
-      query.where(
-        and(
-          eq(ordersTable.kioskId, targetKioskId!),
-          inArray(ordersTable.id, customerOrderIds)
-        )
-      );
+      query.where(inArray(ordersTable.id, customerOrderIds));
     } else if (payload.role === "admin") {
       // ADMINISTRADOR DE KIOSCO:
-      // Únicamente ve los pedidos de su kiosco asignado.
-      query.where(eq(ordersTable.kioskId, targetKioskId!));
+      // Únicamente ve los pedidos de su kiosco asignado (tanto por id como por slug).
+      let targetKioskIds = targetKioskId ? [targetKioskId] : [];
+      if (targetKioskId) {
+        try {
+          const [k] = await db
+            .select({ id: kiosksTable.id, slug: kiosksTable.slug })
+            .from(kiosksTable)
+            .where(or(eq(kiosksTable.id, targetKioskId), eq(kiosksTable.slug, targetKioskId)))
+            .limit(1);
+          if (k) {
+            targetKioskIds = Array.from(new Set([k.id, k.slug, targetKioskId].filter(Boolean) as string[]));
+          }
+        } catch {}
+      }
+      query.where(inArray(ordersTable.kioskId, targetKioskIds));
     } else if (payload.role === "superadmin") {
       // SUPERADMIN:
       // Puede ver los pedidos del kiosco filtrado o todos los pedidos globales
       if (targetKioskId) {
-        query.where(eq(ordersTable.kioskId, targetKioskId));
+        let targetKioskIds = [targetKioskId];
+        try {
+          const [k] = await db
+            .select({ id: kiosksTable.id, slug: kiosksTable.slug })
+            .from(kiosksTable)
+            .where(or(eq(kiosksTable.id, targetKioskId), eq(kiosksTable.slug, targetKioskId)))
+            .limit(1);
+          if (k) {
+            targetKioskIds = Array.from(new Set([k.id, k.slug, targetKioskId].filter(Boolean) as string[]));
+          }
+        } catch {}
+        query.where(inArray(ordersTable.kioskId, targetKioskIds));
       }
     }
 

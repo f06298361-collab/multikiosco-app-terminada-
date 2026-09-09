@@ -204,8 +204,21 @@ export async function userCanAccessKiosk(
 
   if (user.role !== "admin") return false;
 
+  // Resolve kiosk to obtain both its id and slug
+  let kioskIdentifiers = [targetKioskId];
+  try {
+    const [kiosk] = await db
+      .select({ id: kiosksTable.id, slug: kiosksTable.slug })
+      .from(kiosksTable)
+      .where(or(eq(kiosksTable.id, targetKioskId), eq(kiosksTable.slug, targetKioskId)))
+      .limit(1);
+    if (kiosk) {
+      kioskIdentifiers = Array.from(new Set([kiosk.id, kiosk.slug, targetKioskId].filter(Boolean) as string[]));
+    }
+  } catch {}
+
   // 1. Direct legacy match
-  if (user.kioskId && user.kioskId === targetKioskId) return true;
+  if (user.kioskId && kioskIdentifiers.includes(user.kioskId)) return true;
 
   // 2. Query user_kiosks table if userId is present
   if (user.userId) {
@@ -216,7 +229,7 @@ export async function userCanAccessKiosk(
         .where(
           and(
             eq(userKiosksTable.userId, user.userId),
-            eq(userKiosksTable.kioskId, targetKioskId)
+            inArray(userKiosksTable.kioskId, kioskIdentifiers)
           )
         )
         .limit(1);

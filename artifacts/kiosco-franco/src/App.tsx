@@ -729,6 +729,30 @@ export default function App() {
     };
   }, [screen, lastOrder]);
 
+  const storeAdminUser = useStore((s) => s.adminUser);
+  const storeAdminRole = useStore((s) => s.adminRole);
+
+  useEffect(() => {
+    const isAuthed = store.hasAdminAuth();
+    setAdminAuthed(isAuthed);
+    const r = storeAdminRole || storeAdminUser?.role || store.getAdminRole() || "cliente";
+    setRole(r);
+  }, [storeAdminUser, storeAdminRole]);
+
+  useEffect(() => {
+    if (adminAuthed) {
+      if (screen === "superadmin") {
+        store.setView("superadmin");
+      } else if (screen === "admin") {
+        store.setView("admin");
+      } else {
+        store.setView("client");
+      }
+    } else {
+      store.setView("client");
+    }
+  }, [screen, adminAuthed]);
+
   useEffect(() => {
     if (adminAuthed) {
       const u = store.getAdminUser();
@@ -742,7 +766,7 @@ export default function App() {
     store.logoutAdmin();
     setAdminAuthed(false);
     setRole("cliente");
-    setScreen("admin");
+    setScreen("products");
   };
 
   const handleAuthSuccess = (authedRole?: Role) => {
@@ -764,10 +788,16 @@ export default function App() {
   };
 
   const handleGoAdmin = () => {
+    if (!store.hasAdminAuth()) {
+      return;
+    }
     setScreen("admin");
   };
 
   const handleSelectScreen = (s: Screen) => {
+    if ((s === "admin" || s === "superadmin") && !store.hasAdminAuth()) {
+      return;
+    }
     setScreen(s);
   };
 
@@ -800,15 +830,17 @@ export default function App() {
 
   return (
     <>
-      <TopViewSwitcher
-        currentScreen={screen}
-        onSelectScreen={handleSelectScreen}
-      />
+      {adminAuthed && (
+        <TopViewSwitcher
+          currentScreen={screen}
+          onSelectScreen={handleSelectScreen}
+        />
+      )}
       <ToastContainer />
 
       <div
         className="mx-auto flex h-full w-full max-w-7xl flex-col bg-background transition-all"
-        style={{ paddingTop: 44 }}
+        style={{ paddingTop: adminAuthed ? 40 : 0 }}
       >
         {screen !== "superadmin" && (screen !== "admin" || adminAuthed) && <Header currentScreen={screen} />}
 
@@ -956,6 +988,9 @@ function TopViewSwitcher({
   currentScreen: Screen;
   onSelectScreen: (s: Screen) => void;
 }) {
+  const isAuthed = store.hasAdminAuth();
+  if (!isAuthed) return null;
+
   const isClientView = [
     "products",
     "cart",
@@ -965,7 +1000,11 @@ function TopViewSwitcher({
   ].includes(currentScreen);
   const isAdminView = currentScreen === "admin";
   const isSuperAdminView = currentScreen === "superadmin";
-  const isSuperAdminRole = store.hasAdminAuth() && store.getAdminRole() === "superadmin";
+
+  const storeAdminRole = useStore((s) => s.adminRole);
+  const storeAdminUser = useStore((s) => s.adminUser);
+  const effectiveRole = storeAdminRole || storeAdminUser?.role || store.getAdminRole();
+  const isSuperAdminRole = isAuthed && effectiveRole === "superadmin";
 
   const getBtnClass = (active: boolean) =>
     `px-3 py-1 rounded-md text-xs font-semibold transition-all whitespace-nowrap ${
@@ -1333,12 +1372,17 @@ function BottomNav({
   cartCount: number;
   onChange: (s: Screen) => void;
 }) {
+  const isAuthedAdmin = store.hasAdminAuth() && (role === "admin" || role === "superadmin");
+
   const items: { id: Screen; label: string; icon: typeof Store; badge?: number }[] = [
     { id: "products", label: "Productos", icon: Store },
     { id: "cart", label: "Carrito", icon: ShoppingCart, badge: cartCount },
     { id: "checkout", label: "Pedido", icon: Receipt },
-    { id: "admin", label: "Admin", icon: Lock },
   ];
+
+  if (isAuthedAdmin) {
+    items.push({ id: "admin", label: "Admin", icon: Lock });
+  }
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-md sm:max-w-xl md:max-w-2xl -translate-x-1/2 border-t border-border/60 bg-card/95 backdrop-blur-sm sm:border-x sm:rounded-t-2xl sm:shadow-lg">
@@ -2416,14 +2460,26 @@ function MercadoPagoPaymentScreen({
 // ─── Pantalla: Confirmación ───────────────────────────────────────────────────
 
 function ConfirmationScreen({
-  order,
+  order: initialOrder,
   onDone,
 }: {
   order: Order;
   onDone: () => void;
 }) {
   const settings = useStore((s) => s.settings);
+  const liveOrderFromStore = useStore((s) => s.orders.find((o) => o.id === initialOrder.id));
+  const order = liveOrderFromStore || initialOrder;
   const url = buildWhatsappUrl(order, settings);
+
+  // Sincronización continua en vivo: actualiza el estado automáticamente sin recargar ni tocar nada
+  useEffect(() => {
+    if (order.status === "entregado") return;
+    store.refreshOrders();
+    const timer = setInterval(() => {
+      store.refreshOrders();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [order.id, order.status]);
 
   let rawItems = (order as any)?.items;
   if (typeof rawItems === "string") {
