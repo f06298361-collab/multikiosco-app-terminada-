@@ -100,7 +100,7 @@ export const ListOrdersResponseItem = zod.object({
     }),
   ),
   total: zod.number(),
-  status: zod.enum(["nuevo", "preparacion", "listo", "entregado"]),
+  status: zod.enum(["nuevo", "preparacion", "listo", "entregado", "cancelado", "anulado"]),
 });
 export const ListOrdersResponse = zod.array(ListOrdersResponseItem);
 
@@ -124,7 +124,7 @@ export const UpdateOrderStatusParams = zod.object({
 });
 
 export const UpdateOrderStatusBody = zod.object({
-  status: zod.enum(["nuevo", "preparacion", "listo", "entregado"]).optional(),
+  status: zod.enum(["nuevo", "preparacion", "listo", "entregado", "cancelado", "anulado"]).optional(),
   customerName: zod.string().optional(),
   address: zod.string().optional(),
   delivery: zod.enum(["retiro", "envio"]).optional(),
@@ -159,7 +159,7 @@ export const UpdateOrderStatusResponse = zod.object({
     }),
   ),
   total: zod.number(),
-  status: zod.enum(["nuevo", "preparacion", "listo", "entregado"]),
+  status: zod.enum(["nuevo", "preparacion", "listo", "entregado", "cancelado", "anulado"]),
 });
 
 export const DeleteOrderParams = zod.object({

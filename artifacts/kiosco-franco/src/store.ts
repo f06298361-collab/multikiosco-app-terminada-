@@ -24,7 +24,7 @@ export type CartItem = {
   qty: number;
 };
 
-export type OrderStatus = "nuevo" | "preparacion" | "listo" | "entregado";
+export type OrderStatus = "nuevo" | "preparacion" | "listo" | "entregado" | "cancelado" | "anulado";
 
 export type PaymentMethod = "efectivo" | "mercadopago";
 
@@ -404,9 +404,6 @@ async function api<T>(
       try {
         const errBody = await res.json();
         if (errBody && errBody.error) errMsg = errBody.error;
-        if (errBody && (errBody.kioskDeleted || errBody.deleted)) {
-          handleKioskDeleted();
-        }
       } catch {}
     }
     throw new Error(errMsg);
@@ -1063,15 +1060,18 @@ async function verifyAdmin(): Promise<AdminUser | null> {
 }
 
 export function handleKioskDeleted(deletedKioskId?: string) {
+  if (!deletedKioskId || typeof deletedKioskId !== "string" || !deletedKioskId.trim()) {
+    return;
+  }
+  const cleanDeletedId = deletedKioskId.trim();
   const currentSelected = state.selectedKioskId;
   const currentId = state.currentKiosk.id;
   const currentSlug = state.currentKiosk.slug;
 
   const matches =
-    !deletedKioskId ||
-    deletedKioskId === currentSelected ||
-    deletedKioskId === currentId ||
-    deletedKioskId === currentSlug;
+    cleanDeletedId === currentSelected ||
+    cleanDeletedId === currentId ||
+    cleanDeletedId === currentSlug;
 
   if (matches) {
     try {

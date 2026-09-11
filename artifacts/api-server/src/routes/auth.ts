@@ -124,14 +124,6 @@ router.get("/admin/verify", requireAuth, async (req: AuthRequest, res): Promise<
     user.kioskId
   );
 
-  if (user.role === "admin" && assignedKiosks.length === 0) {
-    res.status(403).json({
-      error: "El negocio asociado a esta cuenta ya no existe o fue eliminado.",
-      kioskDeleted: true,
-    });
-    return;
-  }
-
   res.json({
     ok: true,
     user: {

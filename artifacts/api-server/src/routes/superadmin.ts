@@ -188,6 +188,10 @@ router.post("/admin/kiosks", async (req: AuthRequest, res): Promise<void> => {
           userId: adminUserId,
           kioskId: newKiosk.id,
         });
+        await db
+          .update(usersTable)
+          .set({ kioskId: newKiosk.id, updatedAt: new Date() })
+          .where(and(eq(usersTable.id, adminUserId), or(isNull(usersTable.kioskId), eq(usersTable.kioskId, ""))));
         assignedToUserId = adminUserId;
       } catch (assignErr) {
         console.warn("Could not assign kiosk to admin user:", assignErr);

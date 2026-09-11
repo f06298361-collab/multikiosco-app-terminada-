@@ -93,6 +93,7 @@ import {
   clearActiveCheckoutSession,
 } from "./checkoutSession";
 import { applyThemeColor, THEME_COLOR_PRESETS } from "./theme";
+import { copyTextToClipboard } from "./lib/utils";
 
 // ─── Tipos y constantes ──────────────────────────────────────────────────────
 
@@ -112,6 +113,8 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   preparacion: "En preparación",
   listo: "Listo",
   entregado: "Entregado",
+  cancelado: "Cancelado",
+  anulado: "Anulado",
 };
 
 const STATUS_COLOR: Record<OrderStatus, string> = {
@@ -119,6 +122,8 @@ const STATUS_COLOR: Record<OrderStatus, string> = {
   preparacion: "bg-amber-50 text-amber-700 border border-amber-200",
   listo: "bg-sky-50 text-sky-700 border border-sky-200",
   entregado: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  cancelado: "bg-slate-100 text-slate-600 border border-slate-200 line-through",
+  anulado: "bg-slate-100 text-slate-600 border border-slate-200 line-through",
 };
 
 // ─── Visor de imágenes ────────────────────────────────────────────────────────
@@ -614,6 +619,11 @@ export default function App() {
       if (params.get("invitation") || params.get("invite")) return "accept-invitation";
       if (params.get("view") === "admin") return "admin";
       if (params.get("view") === "superadmin") return "superadmin";
+      // Si el enlace de difusión incluye explícitamente el negocio (ej: ?kiosk=slug),
+      // el objetivo es abrir la tienda/customer view de ese negocio.
+      if (params.has("kiosk") || params.has("kioskid") || params.has("kiosk_id")) {
+        return "products";
+      }
     }
     if (store.hasAdminAuth()) {
       const r = store.getAdminRole();
@@ -1096,6 +1106,104 @@ function TopViewSwitcher({
   );
 }
 
+// ─── Modal Compartir Negocio (Vista Pública de Cliente) ───────────────────────
+
+function ShareBusinessModal({
+  isOpen,
+  onClose,
+  storeUrl,
+  shopName,
+  shareMessage,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  storeUrl: string;
+  shopName: string;
+  shareMessage: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleCopy = async () => {
+    const ok = await copyTextToClipboard(storeUrl);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleWhatsApp = () => {
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareMessage)}`, "_blank");
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+      <div className="w-full max-w-sm rounded-3xl border border-border/60 bg-card p-5 shadow-2xl animate-in fade-in zoom-in-95 space-y-4">
+        <div className="flex items-center justify-between pb-2 border-b border-border/50">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Share2 className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-foreground">Compartir negocio</h3>
+              <p className="text-[11px] text-muted-foreground">{shopName || "Tienda online"}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+            title="Cerrar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span className="font-semibold">¡Enlace listo para compartir!</span>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-semibold text-muted-foreground block">
+            Enlace directo de la tienda
+          </label>
+          <div className="flex items-center gap-1.5 rounded-xl border border-border bg-muted/60 p-1.5">
+            <input
+              type="text"
+              readOnly
+              value={storeUrl}
+              className="flex-1 bg-transparent px-2 text-xs text-foreground font-mono select-all focus:outline-none truncate"
+            />
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 active:scale-95 transition shrink-0 shadow-2xs cursor-pointer"
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>{copied ? "Copiado" : "Copiar"}</span>
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleWhatsApp}
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white py-2.5 px-4 text-xs font-bold transition shadow-xs cursor-pointer"
+        >
+          <MessageCircle className="h-4 w-4" />
+          <span>Compartir por WhatsApp</span>
+        </button>
+
+        <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+          Cualquier persona que abra el enlace accederá directamente a los productos y catálogo de este negocio.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Header principal ─────────────────────────────────────────────────────────
 
 function Header({ currentScreen }: { currentScreen?: Screen }) {
@@ -1108,6 +1216,34 @@ function Header({ currentScreen }: { currentScreen?: Screen }) {
   const currentKiosk = useStore((s) => s.currentKiosk);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [pendingKiosk, setPendingKiosk] = useState<Kiosk | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+
+  const handleShareBusiness = async () => {
+    const shopName = (settings.shopName || currentKiosk.name || "").trim();
+    const slugOrId = (settings.slug || settings.kioskId || currentKiosk.slug || currentKiosk.id || selectedKioskId || "").trim();
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const storeUrl = slugOrId ? `${origin}/?kiosk=${encodeURIComponent(slugOrId)}` : origin;
+
+    const shareText = shopName
+      ? `🛍️ Visitá la tienda online de ${shopName}\nMirá nuestros productos y hacé tu pedido acá:`
+      : "🛍️ Visitá mi tienda online\nMirá nuestros productos y hacé tu pedido acá:";
+
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: shopName ? `Tienda ${shopName}` : "Tienda online",
+          text: shareText,
+          url: storeUrl,
+        });
+        return;
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+      }
+    }
+
+    await copyTextToClipboard(storeUrl);
+    setShareModalOpen(true);
+  };
 
   const adminUser = store.getAdminUser();
   const isAdmin = adminUser?.role === "admin";
@@ -1257,6 +1393,19 @@ function Header({ currentScreen }: { currentScreen?: Screen }) {
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <NotificationBellButton />
 
+            {isClientView && (
+              <button
+                id="share-business-header-btn"
+                type="button"
+                onClick={handleShareBusiness}
+                title="Compartir negocio"
+                className="flex items-center gap-1 rounded-xl bg-white/20 hover:bg-white/30 px-2.5 py-1.5 text-xs font-semibold text-white transition active:scale-95 shadow-2xs cursor-pointer"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Compartir</span>
+              </button>
+            )}
+
             {!isStandalone && (
               <button
                 onClick={handleInstallClick}
@@ -1405,6 +1554,30 @@ function Header({ currentScreen }: { currentScreen?: Screen }) {
           </div>
         </div>
       )}
+
+      <ShareBusinessModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        storeUrl={
+          (() => {
+            const slugOrId = (settings.slug || settings.kioskId || currentKiosk.slug || currentKiosk.id || selectedKioskId || "").trim();
+            const origin = typeof window !== "undefined" ? window.location.origin : "";
+            return slugOrId ? `${origin}/?kiosk=${encodeURIComponent(slugOrId)}` : origin;
+          })()
+        }
+        shopName={(settings.shopName || currentKiosk.name || "").trim()}
+        shareMessage={
+          (() => {
+            const slugOrId = (settings.slug || settings.kioskId || currentKiosk.slug || currentKiosk.id || selectedKioskId || "").trim();
+            const origin = typeof window !== "undefined" ? window.location.origin : "";
+            const storeUrl = slugOrId ? `${origin}/?kiosk=${encodeURIComponent(slugOrId)}` : origin;
+            const shopName = (settings.shopName || currentKiosk.name || "").trim();
+            return shopName
+              ? `🛍️ Visitá la tienda online de ${shopName}\nMirá nuestros productos y hacé tu pedido acá:\n${storeUrl}`
+              : `🛍️ Visitá mi tienda online\nMirá nuestros productos y hacé tu pedido acá:\n${storeUrl}`;
+          })()
+        }
+      />
     </>
   );
 }
@@ -1482,10 +1655,42 @@ function ProductsScreen({ onGoToCart }: { onGoToCart: () => void }) {
   const selectedKioskId = useStore((s) => s.selectedKioskId);
   const urlKioskNotice = useStore((s) => s.urlKioskNotice);
   const publicKiosks = useStore((s) => s.publicKiosks);
+  const currentKiosk = useStore((s) => s.currentKiosk);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCat, setActiveCat] = useState("Todos");
   const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [copiedToast, setCopiedToast] = useState(false);
+
+  const handleShareBusiness = async () => {
+    const shopName = (settings.shopName || currentKiosk.name || "").trim();
+    const slugOrId = (settings.slug || settings.kioskId || currentKiosk.slug || currentKiosk.id || selectedKioskId || "").trim();
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const storeUrl = slugOrId ? `${origin}/?kiosk=${encodeURIComponent(slugOrId)}` : origin;
+
+    const shareText = shopName
+      ? `🛍️ Visitá la tienda online de ${shopName}\nMirá nuestros productos y hacé tu pedido acá:`
+      : "🛍️ Visitá mi tienda online\nMirá nuestros productos y hacé tu pedido acá:";
+
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: shopName ? `Tienda ${shopName}` : "Tienda online",
+          text: shareText,
+          url: storeUrl,
+        });
+        return;
+      } catch (err: any) {
+        if (err?.name === "AbortError") return;
+      }
+    }
+
+    await copyTextToClipboard(storeUrl);
+    setCopiedToast(true);
+    setTimeout(() => setCopiedToast(false), 2500);
+    setShareModalOpen(true);
+  };
 
   useEffect(() => {
     const handleBeforeInstall = (e: Event) => {
@@ -2849,7 +3054,7 @@ function HandoverSheetModal({
 }) {
   const [copiedText, setCopiedText] = useState(false);
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const slug = kiosk.slug || kiosk.id;
+  const slug = (kiosk.slug || kiosk.id || "").trim();
   const storeUrl = `${origin}/?kiosk=${encodeURIComponent(slug)}`;
   const adminUrl = `${origin}/?kiosk=${encodeURIComponent(slug)}&view=admin`;
 
@@ -2870,10 +3075,12 @@ ${initialPassword ? `🔒 *Contraseña Inicial Plataforma:* ${initialPassword}\n
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📲 ¡Tu tienda ya está lista para recibir pedidos directo a tu WhatsApp!`;
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(handoverText);
-    setCopiedText(true);
-    setTimeout(() => setCopiedText(false), 2000);
+  const handleCopy = async () => {
+    const ok = await copyTextToClipboard(handoverText);
+    if (ok) {
+      setCopiedText(true);
+      setTimeout(() => setCopiedText(false), 2000);
+    }
   };
 
   const handleWhatsApp = () => {
@@ -3407,13 +3614,15 @@ function AdminPanel({
   };
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const kioskSlug = settings.slug || settings.kioskId || currentKiosk.slug || currentKiosk.id;
-  const storeUrl = `${origin}/?kiosk=${kioskSlug}`;
+  const kioskSlug = (settings.slug || settings.kioskId || currentKiosk.slug || currentKiosk.id || "").trim();
+  const storeUrl = `${origin}/?kiosk=${encodeURIComponent(kioskSlug)}`;
 
-  const handleCopyStoreUrl = () => {
-    navigator.clipboard.writeText(storeUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
+  const handleCopyStoreUrl = async () => {
+    const ok = await copyTextToClipboard(storeUrl);
+    if (ok) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
   };
 
   const handleShareStoreUrl = async () => {
@@ -3424,10 +3633,10 @@ function AdminPanel({
           text: `¡Hacé tu pedido online en ${settings.shopName || currentKiosk.name}!`,
           url: storeUrl,
         });
+        return;
       } catch {}
-    } else {
-      handleCopyStoreUrl();
     }
+    await handleCopyStoreUrl();
   };
 
   const tabs = [
@@ -4284,8 +4493,13 @@ function AdminDailySales({ onEditOrder }: { onEditOrder?: (order: Order) => void
 
   // Filtrar exclusivamente pedidos de ESTE kiosco asignado/gestionado (Aislamiento de negocio)
   const kioskOrders = useMemo(() => {
-    return orders.filter((o) => (o.kioskId || currentKiosk.id) === currentKiosk.id);
-  }, [orders, currentKiosk.id]);
+    const kId = currentKiosk.id;
+    const kSlug = currentKiosk.slug;
+    return orders.filter((o) => {
+      if (!o.kioskId) return true;
+      return o.kioskId === kId || (kSlug && o.kioskId === kSlug);
+    });
+  }, [orders, currentKiosk.id, currentKiosk.slug]);
 
   // Filtrar pedidos según la fecha seleccionada en horario local
   const dayOrders = useMemo(() => {
@@ -4311,36 +4525,51 @@ function AdminDailySales({ onEditOrder }: { onEditOrder?: (order: Order) => void
     let pickupSales = 0;
     let deliveryCount = 0;
     let deliverySales = 0;
+    let validOrdersCount = 0;
+    let cancelledCount = 0;
 
     const productMap = new Map<string, { name: string; qty: number; total: number }>();
 
     for (const o of dayOrders) {
-      totalSales += o.total;
+      // Excluir pedidos cancelados o anulados de las ventas
+      const isCancelled =
+        o.status === "cancelado" || o.status === "anulado" || (o as any).status === "rechazado";
+      if (isCancelled) {
+        cancelledCount++;
+        continue;
+      }
+
+      validOrdersCount++;
+      const orderTotal = typeof o.total === "number" ? o.total : Number(o.total) || 0;
+      totalSales += orderTotal;
+
       if (o.status === "entregado") {
         completedCount++;
-        completedSales += o.total;
+        completedSales += orderTotal;
       }
       if (o.payment === "efectivo") {
-        cashSales += o.total;
+        cashSales += orderTotal;
         cashCount++;
       } else {
-        mpSales += o.total;
+        mpSales += orderTotal;
         mpCount++;
       }
       if (o.delivery === "retiro") {
         pickupCount++;
-        pickupSales += o.total;
+        pickupSales += orderTotal;
       } else {
         deliveryCount++;
-        deliverySales += o.total;
+        deliverySales += orderTotal;
       }
 
       for (const item of o.items || []) {
-        totalProductsQty += item.qty;
+        const qty = typeof item.qty === "number" ? item.qty : Number(item.qty) || 0;
+        const price = typeof item.price === "number" ? item.price : Number(item.price) || 0;
+        totalProductsQty += qty;
         const key = item.productId || item.name;
         const existing = productMap.get(key) || { name: item.name, qty: 0, total: 0 };
-        existing.qty += item.qty;
-        existing.total += item.price * item.qty;
+        existing.qty += qty;
+        existing.total += price * qty;
         productMap.set(key, existing);
       }
     }
@@ -4350,7 +4579,9 @@ function AdminDailySales({ onEditOrder }: { onEditOrder?: (order: Order) => void
       .slice(0, 5);
 
     return {
-      totalOrders: dayOrders.length,
+      totalOrders: validOrdersCount,
+      allDayOrdersCount: dayOrders.length,
+      cancelledCount,
       totalSales,
       completedCount,
       completedSales,
@@ -5171,13 +5402,13 @@ function ProductForm({
                 className="w-full rounded-xl border border-border/70 bg-background px-3.5 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition"
               />
             </Field>
-            <Field label="Insignia / Badge">
+            <Field label="Etiqueta promocional">
               <select
                 value={badge}
                 onChange={(e) => setBadge(e.target.value)}
                 className="w-full rounded-xl border border-border/70 bg-background px-3.5 py-3 text-sm outline-none focus:border-primary transition"
               >
-                <option value="">Sin insignia</option>
+                <option value="">Sin etiqueta</option>
                 <option value="oferta">🔴 Oferta</option>
                 <option value="destacado">⭐ Destacado</option>
                 <option value="promocion">⚡ Promoción</option>
@@ -5311,13 +5542,15 @@ function AdminSettings({ onViewStore }: { onViewStore?: () => void } = {}) {
   const logoFileRef = useRef<HTMLInputElement>(null);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const kioskSlug = settings.slug || settings.kioskId || "";
-  const storeUrl = `${origin}/?kiosk=${kioskSlug}`;
+  const kioskSlug = (settings.slug || settings.kioskId || currentKiosk.slug || currentKiosk.id || "").trim();
+  const storeUrl = `${origin}/?kiosk=${encodeURIComponent(kioskSlug)}`;
 
-  const handleCopyStoreUrl = () => {
-    navigator.clipboard.writeText(storeUrl);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
+  const handleCopyStoreUrl = async () => {
+    const ok = await copyTextToClipboard(storeUrl);
+    if (ok) {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
   };
 
   const handleShareStoreUrl = async () => {
@@ -5328,10 +5561,10 @@ function AdminSettings({ onViewStore }: { onViewStore?: () => void } = {}) {
           text: `¡Hacé tu pedido online en ${shopName || "mi tienda"}!`,
           url: storeUrl,
         });
+        return;
       } catch {}
-    } else {
-      handleCopyStoreUrl();
     }
+    await handleCopyStoreUrl();
   };
 
   useEffect(() => {
@@ -5743,7 +5976,7 @@ function AdminPromotions() {
         <div>
           <p className="font-bold">Sección de Ofertas y Destacados</p>
           <p className="mt-0.5 opacity-90">
-            Asigná insignias visuales (Oferta, Destacado, Promoción) y precios de descuento a tus productos para captar la atención de tus clientes en la tienda.
+            Asigná etiquetas visuales (Oferta, Destacado, Promoción) y precios de descuento a tus productos para captar la atención de tus clientes en la tienda.
           </p>
         </div>
       </div>
@@ -5793,13 +6026,13 @@ function AdminPromotions() {
               {/* Ajustes de la promoción */}
               <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-border/40 text-xs">
                 <div>
-                  <label className="text-[11px] font-bold text-muted-foreground block mb-1">Insignia / Badge</label>
+                  <label className="text-[11px] font-bold text-muted-foreground block mb-1">Etiqueta destacada</label>
                   <select
                     value={p.badge || ""}
                     onChange={(e) => store.updateProduct(p.id, { badge: (e.target.value as any) || null })}
                     className="w-full rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary"
                   >
-                    <option value="">Sin Badge</option>
+                    <option value="">Sin etiqueta</option>
                     <option value="oferta">🔴 Oferta</option>
                     <option value="destacado">⭐ Destacado</option>
                     <option value="promocion">⚡ Promoción</option>
@@ -5833,20 +6066,40 @@ function AdminPromotions() {
 
 function AdminMarketing() {
   const currentKiosk = useStore((s) => s.currentKiosk);
+  const settings = useStore((s) => s.settings);
   const [copied, setCopied] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const storeUrl = `${origin}/?kiosk=${currentKiosk.slug || currentKiosk.id}`;
+  const slug = (currentKiosk.slug || currentKiosk.id || "").trim();
+  const storeUrl = `${origin}/?kiosk=${encodeURIComponent(slug)}`;
 
-  const copyLink = () => {
-    navigator.clipboard.writeText(storeUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyLink = async () => {
+    const ok = await copyTextToClipboard(storeUrl);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const shareWhatsapp = () => {
-    const text = `¡Hola! 👋 Te invito a conocer la tienda online de ${currentKiosk.name}. Mirá nuestros productos y realizá tu pedido directamente acá:\n${storeUrl}`;
+    const shopDisplayName = settings.shopName || currentKiosk.name || "mi tienda online";
+    const text = `¡Hola! 👋 Te invito a conocer la tienda online de ${shopDisplayName}. Mirá nuestros productos y realizá tu pedido directamente acá:\n${storeUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+  };
+
+  const shareNative = async () => {
+    const shopDisplayName = settings.shopName || currentKiosk.name || "Mi Tienda Online";
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: shopDisplayName,
+          text: `¡Hacé tu pedido online en ${shopDisplayName}!`,
+          url: storeUrl,
+        });
+        return;
+      } catch {}
+    }
+    await copyLink();
   };
 
   const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(storeUrl)}`;
@@ -5887,6 +6140,17 @@ function AdminMarketing() {
           <Share2 className="h-4 w-4" />
           Compartir Tienda por WhatsApp
         </button>
+
+        {typeof navigator !== "undefined" && Boolean(navigator.share) && (
+          <button
+            type="button"
+            onClick={shareNative}
+            className="w-full rounded-2xl border border-border bg-muted/60 hover:bg-accent py-2.5 text-xs font-bold text-foreground flex items-center justify-center gap-2 transition active:scale-95"
+          >
+            <Share2 className="h-4 w-4 text-primary" />
+            Más opciones para compartir (Instagram, etc.)
+          </button>
+        )}
       </div>
 
       {/* Código QR */}
@@ -5918,18 +6182,34 @@ function AdminMarketing() {
 // ─── Admin: Métricas e Indicadores ────────────────────────────────────────────
 
 function AdminStats() {
+  const currentKiosk = useStore((s) => s.currentKiosk);
   const orders = useStore((s) => s.orders);
   const products = useStore((s) => s.products);
 
+  const kioskOrders = useMemo(() => {
+    const kId = currentKiosk.id;
+    const kSlug = currentKiosk.slug;
+    return orders.filter((o) => {
+      if (!o.kioskId) return true;
+      return o.kioskId === kId || (kSlug && o.kioskId === kSlug);
+    });
+  }, [orders, currentKiosk.id, currentKiosk.slug]);
+
+  const validOrders = useMemo(() => {
+    return kioskOrders.filter(
+      (o) => o.status !== "cancelado" && o.status !== "anulado" && (o as any).status !== "rechazado"
+    );
+  }, [kioskOrders]);
+
   const totalSales = useMemo(() => {
-    return orders
+    return validOrders
       .filter((o) => o.status === "entregado")
-      .reduce((sum, o) => sum + o.total, 0);
-  }, [orders]);
+      .reduce((sum, o) => sum + (o.total || 0), 0);
+  }, [validOrders]);
 
   const pendingOrders = useMemo(() => {
-    return orders.filter((o) => o.status === "nuevo" || o.status === "preparacion").length;
-  }, [orders]);
+    return validOrders.filter((o) => o.status === "nuevo" || o.status === "preparacion").length;
+  }, [validOrders]);
 
   return (
     <div className="p-4 space-y-4">
@@ -5946,7 +6226,7 @@ function AdminStats() {
           <div className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
             <Receipt className="h-4 w-4" />
           </div>
-          <p className="text-2xl font-bold text-foreground">{orders.length}</p>
+          <p className="text-2xl font-bold text-foreground">{validOrders.length}</p>
           <p className="text-xs text-muted-foreground mt-0.5">Pedidos Totales</p>
         </div>
 
@@ -5971,7 +6251,7 @@ function AdminStats() {
         <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Desglose de Pedidos por Estado</h4>
         <div className="space-y-2 text-xs">
           {(["nuevo", "preparacion", "listo", "entregado"] as OrderStatus[]).map((st) => {
-            const count = orders.filter((o) => o.status === st).length;
+            const count = validOrders.filter((o) => o.status === st).length;
             return (
               <div key={st} className="flex items-center justify-between py-1 border-b border-border/40">
                 <span className="capitalize text-muted-foreground">{STATUS_LABEL[st]}</span>
@@ -6224,31 +6504,34 @@ function KioskBusinessConfigCard({
   const [copiedHandover, setCopiedHandover] = useState(false);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const currentSlug = slug.trim() || kiosk.slug || kiosk.id;
-  const storeUrl = `${origin}/?kiosk=${currentSlug}`;
+  const currentSlug = (slug.trim() || kiosk.slug || kiosk.id || "").trim();
+  const storeUrl = `${origin}/?kiosk=${encodeURIComponent(currentSlug)}`;
+  const adminUrl = `${origin}/?kiosk=${encodeURIComponent(currentSlug)}&view=admin`;
 
   const handoverText = `🏪 *¡BIENVENIDO A TU TIENDA ONLINE MULTIKIOSCO!*
 
 📍 *Comercio:* ${name || kiosk.name}
 🌐 *Tu Tienda Web Pública:* ${storeUrl}
 
-🔐 *Acceso a tu Panel de Control Administrador:*
-1. Ingresá a tu tienda desde el enlace arriba.
-2. Tocá el ícono ⚙️ "Admin" en la barra de navegación inferior.
-3. Iniciá sesión con tus credenciales de Administrador.
+🔐 *Acceso a tu Panel Administrador:*
+${adminUrl}
 
 📲 *¡Tu negocio ya está activo para recibir pedidos directo a tu WhatsApp!*`;
 
-  const handleCopyHandover = () => {
-    navigator.clipboard.writeText(handoverText);
-    setCopiedHandover(true);
-    setTimeout(() => setCopiedHandover(false), 2000);
+  const handleCopyHandover = async () => {
+    const ok = await copyTextToClipboard(handoverText);
+    if (ok) {
+      setCopiedHandover(true);
+      setTimeout(() => setCopiedHandover(false), 2000);
+    }
   };
 
-  const handleCopyKioskLink = () => {
-    navigator.clipboard.writeText(storeUrl);
-    setCopiedKioskLink(true);
-    setTimeout(() => setCopiedKioskLink(false), 2000);
+  const handleCopyKioskLink = async () => {
+    const ok = await copyTextToClipboard(storeUrl);
+    if (ok) {
+      setCopiedKioskLink(true);
+      setTimeout(() => setCopiedKioskLink(false), 2000);
+    }
   };
 
   const loadSettings = useCallback(async () => {
@@ -7191,8 +7474,6 @@ function SuperAdminPanel({
         return true;
       });
       setKiosks(deduped);
-    } else {
-      setKiosks([]);
     }
   }, []);
 
@@ -7803,79 +8084,88 @@ function SuperAdminPanel({
             }}
           />
 
-          {/* 3. ADMINISTRADORES DEL KIOSCO */}
-          <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3 shadow-xs">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Administradores del Kiosco ({users.filter((u) => u.kioskId === selectedKioskDetail.id || u.kioskIds?.includes(selectedKioskDetail.id)).length})
-                </h4>
-                <p className="text-[11px] text-muted-foreground">Cuentas con permisos de administración sobre este negocio</p>
-              </div>
+            {/* 3. ADMINISTRADORES DEL KIOSCO */}
+            {(() => {
+              const kioskAssignedUsers = users.filter((u) => {
+                const kId = selectedKioskDetail.id;
+                const kSlug = selectedKioskDetail.slug;
+                if (u.kioskId && (u.kioskId === kId || (kSlug && u.kioskId === kSlug))) return true;
+                if (u.kioskIds && (u.kioskIds.includes(kId) || (kSlug && u.kioskIds.includes(kSlug)))) return true;
+                if (u.assignedKiosks?.some((k: any) => k.id === kId || (kSlug && k.slug === kSlug))) return true;
+                return false;
+              });
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedAdminToAssign("");
-                    setAssignError("");
-                    setShowAssignExistingAdminModal(true);
-                  }}
-                  className="flex items-center gap-1.5 rounded-xl bg-secondary px-3 py-1.5 text-xs font-semibold text-secondary-foreground hover:bg-secondary/80 transition shadow-2xs border border-border/60"
-                >
-                  <Users className="h-3.5 w-3.5 text-primary" />
-                  <span>Asignar existente</span>
-                </button>
+              return (
+                <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-3 shadow-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                        Administradores del Kiosco ({kioskAssignedUsers.length})
+                      </h4>
+                      <p className="text-[11px] text-muted-foreground">Cuentas con permisos de administración sobre este negocio</p>
+                    </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInviteError("");
-                    setInviteName("");
-                    setInviteEmail("");
-                    setInviteKioskId(selectedKioskDetail.id);
-                    setInviteSuccessData(null);
-                    setShowInviteModal(true);
-                  }}
-                  className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-xs"
-                >
-                  <Mail className="h-3.5 w-3.5" />
-                  <span>Invitar administrador</span>
-                </button>
-              </div>
-            </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedAdminToAssign("");
+                          setAssignError("");
+                          setShowAssignExistingAdminModal(true);
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl bg-secondary px-3 py-1.5 text-xs font-semibold text-secondary-foreground hover:bg-secondary/80 transition shadow-2xs border border-border/60"
+                      >
+                        <Users className="h-3.5 w-3.5 text-primary" />
+                        <span>Asignar existente</span>
+                      </button>
 
-            <div className="rounded-xl bg-blue-50/70 border border-blue-200/60 p-2.5 text-[11px] text-blue-900 flex items-start gap-2">
-              <Lock className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <span className="font-bold">¿El administrador olvidó su contraseña?</span> Utilice la opción <strong>Restablecer contraseña</strong> para fijar una clave nueva de forma segura. Las contraseñas se almacenan encriptadas.
-              </div>
-            </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInviteError("");
+                          setInviteName("");
+                          setInviteEmail("");
+                          setInviteKioskId(selectedKioskDetail.id);
+                          setInviteSuccessData(null);
+                          setShowInviteModal(true);
+                        }}
+                        className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition shadow-xs"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        <span>Invitar administrador</span>
+                      </button>
+                    </div>
+                  </div>
 
-            {users.filter((u) => u.kioskId === selectedKioskDetail.id || u.kioskIds?.includes(selectedKioskDetail.id)).length === 0 ? (
-              <div className="py-4 text-center border border-dashed border-border/60 rounded-xl space-y-2">
-                <p className="text-xs text-muted-foreground italic">
-                  No hay administradores asignados específicamente a este kiosco.
-                </p>
-                <div className="flex justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedAdminToAssign("");
-                      setAssignError("");
-                      setShowAssignExistingAdminModal(true);
-                    }}
-                    className="text-xs font-bold text-primary hover:underline"
-                  >
-                    + Asignar administrador existente
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                {users
-                  .filter((u) => u.kioskId === selectedKioskDetail.id || u.kioskIds?.includes(selectedKioskDetail.id))
-                  .map((u) => {
+                  <div className="rounded-xl bg-blue-50/70 border border-blue-200/60 p-2.5 text-[11px] text-blue-900 flex items-start gap-2">
+                    <Lock className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">¿El administrador olvidó su contraseña?</span> Utilice la opción <strong>Restablecer contraseña</strong> para fijar una clave nueva de forma segura. Las contraseñas se almacenan encriptadas.
+                    </div>
+                  </div>
+
+                  {kioskAssignedUsers.length === 0 ? (
+                    <div className="py-4 text-center border border-dashed border-border/60 rounded-xl space-y-2">
+                      <p className="text-xs text-muted-foreground italic">
+                        No hay administradores asignados específicamente a este kiosco.
+                      </p>
+                      <div className="flex justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedAdminToAssign("");
+                            setAssignError("");
+                            setShowAssignExistingAdminModal(true);
+                          }}
+                          className="text-xs font-bold text-primary hover:underline"
+                        >
+                          + Asignar administrador existente
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {kioskAssignedUsers.map((u) => {
                     const isInactive = u.active === false;
                     return (
                       <div
@@ -7959,9 +8249,11 @@ function SuperAdminPanel({
                       </div>
                     );
                   })}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
           {/* 4. PRODUCTOS & 5. PEDIDOS — ACCESO DIRECTO */}
           <div className="space-y-2.5">
@@ -8274,7 +8566,7 @@ function SuperAdminPanel({
                         </div>
 
                         <a
-                          href={`${typeof window !== "undefined" ? window.location.origin : ""}/?kiosk=${b.slug || b.id}`}
+                          href={`${typeof window !== "undefined" ? window.location.origin : ""}/?kiosk=${encodeURIComponent((b.slug || b.id || "").trim())}`}
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}

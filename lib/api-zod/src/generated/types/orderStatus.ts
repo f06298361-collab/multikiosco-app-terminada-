@@ -13,4 +13,6 @@ export const OrderStatus = {
   preparacion: "preparacion",
   listo: "listo",
   entregado: "entregado",
+  cancelado: "cancelado",
+  anulado: "anulado",
 } as const;

@@ -38,7 +38,7 @@ router.get("/products", async (req, res): Promise<void> => {
   }
 
   if (!resolvedKiosk.exists) {
-    res.status(404).json({ error: "El negocio especificado no existe o fue eliminado.", deleted: true });
+    res.status(404).json({ error: "El negocio especificado no fue encontrado." });
     return;
   }
 
@@ -111,7 +111,7 @@ router.post("/products", requireAdmin, async (req: AuthRequest, res): Promise<vo
     .limit(1);
 
   if (!targetKiosk) {
-    res.status(404).json({ error: "El negocio no existe o fue eliminado.", deleted: true });
+    res.status(404).json({ error: "El negocio no fue encontrado." });
     return;
   }
 
@@ -182,7 +182,7 @@ router.patch("/products/:id", requireAdmin, async (req: AuthRequest, res): Promi
       .limit(1);
 
     if (!targetKiosk) {
-      res.status(404).json({ error: "El negocio no existe o fue eliminado.", deleted: true });
+      res.status(404).json({ error: "El negocio no fue encontrado." });
       return;
     }
     if (targetKiosk.active === false) {
@@ -235,7 +235,7 @@ router.delete("/products/:id", requireAdmin, async (req: AuthRequest, res): Prom
       .limit(1);
 
     if (!targetKiosk) {
-      res.status(404).json({ error: "El negocio no existe o fue eliminado.", deleted: true });
+      res.status(404).json({ error: "El negocio no fue encontrado." });
       return;
     }
     if (targetKiosk.active === false) {

@@ -291,6 +291,10 @@ export async function getUserAssignedKiosks(
     }
 
     const idsArray = Array.from(assignedIds);
+    const conditions = idsArray.flatMap((id) => [
+      eq(kiosksTable.id, id),
+      eq(kiosksTable.slug, id.toLowerCase()),
+    ]);
     const kiosks = await db
       .select({
         id: kiosksTable.id,
@@ -299,11 +303,7 @@ export async function getUserAssignedKiosks(
         active: kiosksTable.active,
       })
       .from(kiosksTable)
-      .where(
-        idsArray.length === 1
-          ? eq(kiosksTable.id, idsArray[0])
-          : or(...idsArray.map((id) => eq(kiosksTable.id, id)))
-      );
+      .where(conditions.length === 1 ? conditions[0] : or(...conditions));
 
     return kiosks;
   } catch (err) {

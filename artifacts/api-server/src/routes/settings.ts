@@ -350,7 +350,7 @@ router.put("/settings", requireAdmin, async (req: AuthRequest, res): Promise<voi
     .limit(1);
 
   if (!existingKiosk) {
-    res.status(404).json({ error: "El negocio especificado no existe o fue eliminado.", deleted: true });
+    res.status(404).json({ error: "El negocio especificado no fue encontrado." });
     return;
   }
 

@@ -324,7 +324,7 @@ router.patch("/orders/:id", requireAdmin, async (req: AuthRequest, res): Promise
       .limit(1);
 
     if (!kiosk) {
-      res.status(404).json({ error: "El negocio asociado a este pedido no existe o fue eliminado.", deleted: true });
+      res.status(404).json({ error: "El negocio asociado a este pedido no fue encontrado." });
       return;
     }
     if (kiosk.active === false) {
